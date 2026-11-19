@@ -1,16 +1,17 @@
 document.documentElement.dir='rtl';document.documentElement.lang='ar';
 
-const SEC_PER_EVENT=6;
+const READY_MS=2000;
+const QUESTIONS_PER_ROUND=7;            // every round has 7 questions                 // short "get ready" screen before each question
 const PREFIX='tarteeb-fam-v1-';
 const ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:global.stun.twilio.com:3478'}]};
 const CATS={
   arab:{name:'تاريخ العرب',hint:'أبرز أحداث العرب والخليج'},
-  islam:{name:'التاريخ الإسلامي',hint:'من الهجرة إلى فتح القسطنطينية'},
   cup:{name:'كأس العالم',hint:'أشهر لحظات كأس العالم'},
-  plague:{name:'الأوبئة والأمراض الكبرى',hint:'من الموت الأسود إلى كورونا'},
+  plague:{name:'الأوبئة والأمراض',hint:'من الموت الأسود إلى كورونا'},
+  islam:{name:'التاريخ الإسلامي',hint:'من الهجرة إلى فتح القسطنطينية'},
   family:{name:'أحداث العائلة',hint:'أحداث يضيفها المدير'}
 };
-// minimum years between events in one round, to keep rounds easy
+// minimum years between events in one question, to keep it easy
 const GAP={arab:20,islam:20,cup:8,plague:15,family:0};
 const EVENTS={
 arab:[
@@ -60,26 +61,25 @@ const correctOrder=evs=>evs.map((e,i)=>i).sort((i,j)=>cmp(evs[i],evs[j]));
 function scoreOf(evs,order){const c=correctOrder(evs);let hits=0;order.forEach((ix,i)=>{if(ix===c[i])hits++});const perfect=hits===evs.length;return{hits,perfect,pts:hits+(perfect?3:0)}}
 const rid=n=>Array.from(crypto.getRandomValues(new Uint8Array(n)),b=>'23456789abcdefghjkmnpqrstuvwxyz'[b%31]).join('');
 const genCode=()=>Array.from(crypto.getRandomValues(new Uint8Array(5)),b=>'23456789'[b%8]).join('');
+const qkey=(r,q)=>r+'_'+q;
 
 // ---------- state ----------
-let role=null;            // 'host' | 'client' | null
+let role=null;            // 'host' | 'client' | 'local' (practice alone) | null
 let S=null;               // shared game state (host owns it, clients receive copies)
 let myPid=null,roomCode=null,peer=null,conns={},hostConn=null,clockOff=0,net='idle',connecting=false;
 let family=[];try{family=JSON.parse(load('family')||'[]')}catch(e){family=[]}
 let nick=load('nick')||'';
 let mode='home';
-let solo=null;
-let pick={cat:'arab',per:5};
-let soloSetup={cat:'arab',rounds:5,per:5};
-let drafts={},sortable=null,builtKey=null,sentFor={},revealFor={};
-const isAdmin=()=>role==='host';
+let drafts={},sortable=null,builtKey=null,answering=null,sentFor={},revealFor={};
+const isAdmin=()=>role==='host'||role==='local';
+const hostNow=()=>Date.now()+clockOff;
 const urlRoom=new URLSearchParams(location.search).get('room');
 
 function poolFor(cat){
   if(cat==='family')return family.map(f=>({t:f.title,y:+f.year,m:+f.month||0,c:'family',n:f.note||''}));
   return EVENTS[cat].map(([t,y])=>({t,y,m:0,c:cat}));
 }
-function pickRound(cat,n,used){
+function pickQuestion(cat,n,used){
   const all=poolFor(cat);let pool=all.filter(e=>!used.has(e.t));if(pool.length<n)pool=all;
   let best=[];
   for(const g of [GAP[cat],Math.floor(GAP[cat]/2),0]){
@@ -89,41 +89,80 @@ function pickRound(cat,n,used){
       if(p.length>best.length)best=p;
     }
   }
-  return best.length>=3?shuffle(best):null;
+  return best.length>=2?shuffle(best):null;
 }
+// categories take turns in a shuffled cycle, never the same one twice in a row
+function categorySequence(cats,n){
+  const seq=[];let cycle=[];
+  while(seq.length<n){
+    if(!cycle.length){cycle=shuffle(cats);if(seq.length&&cats.length>1&&cycle[0]===seq[seq.length-1])cycle.push(cycle.shift())}
+    seq.push(cycle.shift());
+  }
+  return seq;
+}
+function availableCats(){return Object.keys(CATS).filter(k=>k!=='family'||family.length>=3)}
 function playerList(){if(!S)return[];return Object.entries(S.players).map(([id,p])=>({id,...p})).sort((a,b)=>(a.joinedAt||0)-(b.joinedAt||0))}
 function teamOf(p,list){const t=(S&&S.teams||{})[p.id];if(t)return t;const i=list.findIndex(x=>x.id===p.id);return i%2?'B':'A'}
+const roundPts=(p,r)=>Object.entries(p.points||{}).reduce((s,[k,v])=>k.startsWith(r+'_')?s+v:s,0);
 
 // ---------- context ----------
 function ctx(){
-  if(mode==='solo'&&solo){
-    const me={id:'me',name:nick||'أنت',answers:solo.answers,points:solo.points,total:Object.values(solo.points).reduce((a,b)=>a+b,0)};
-    const cur=solo.rounds[solo.round];
-    return{kind:'solo',key:'solo'+solo.id,cur,r:solo.round,total:solo.rounds.length,status:solo.status,me,players:[me],teams:false,deadline:solo.startedAt+cur.evs.length*SEC_PER_EVENT*1000,duration:cur.evs.length*SEC_PER_EVENT*1000};
-  }
   if(!S)return null;
   const players=playerList();
-  return{kind:'group',key:S.gameId,cur:S.rounds[S.round],r:S.round,total:S.totalRounds,status:S.status,me:players.find(p=>p.id===myPid)||null,players,teams:S.mode==='teams',
-    deadline:S.startedAt-clockOff+S.duration,duration:S.duration};
+  return{key:S.gameId,R:S.rounds[S.round],r:S.round,total:S.settings.totalRounds,status:S.status,me:players.find(p=>p.id===myPid)||null,players,teams:S.settings.mode==='teams'&&role!=='local',local:role==='local'};
+}
+// where are we in the round, from the host's clock
+function phase(R){
+  const slot=R.ready+R.dur;const el=hostNow()-R.startedAt;const n=R.questions.length;
+  if(el<0)return{q:0,stage:'ready',left:R.ready-el,span:R.ready};
+  const q=Math.floor(el/slot);if(q>=n)return{over:true,since:el-n*slot};
+  const w=el-q*slot;
+  return w<R.ready?{q,stage:'ready',left:R.ready-w,span:R.ready}:{q,stage:'answer',left:slot-w,span:R.dur};
 }
 
-// ---------- networking: host ----------
+// ---------- game state (host / local) ----------
+function defaultSettings(){return{mode:'solo',totalRounds:3,perRound:7,perQ:3,secs:6,cats:availableCats()}}
 function newGameState(keepPlayers){
   const players={};
   if(keepPlayers&&S)for(const[id,p]of Object.entries(S.players))players[id]={name:p.name,joinedAt:p.joinedAt,online:p.online,answers:{},points:{},total:0};
-  if(!players.host)players.host={name:nick||'المدير',joinedAt:Date.now(),online:true,answers:{},points:{},total:0};
-  return{gameId:rid(8),status:'setup',mode:keepPlayers&&S?S.mode:'solo',totalRounds:keepPlayers&&S?S.totalRounds:5,round:0,rounds:[],used:[],teams:keepPlayers&&S?S.teams:{},startedAt:0,duration:0,players};
+  if(!players[myPid])players[myPid]={name:nick||'أنا',joinedAt:Date.now(),online:true,answers:{},points:{},total:0};
+  return{gameId:rid(8),status:'setup',settings:keepPlayers&&S?S.settings:defaultSettings(),round:0,rounds:[],used:[],teams:keepPlayers&&S?S.teams:{},players};
 }
+function commit(){
+  if(role==='host'){
+    store('hostState',JSON.stringify(S));
+    const now=Date.now();
+    for(const[pid,c]of Object.entries(conns)){if(c.open){try{c.send({t:'state',S,now,you:pid})}catch(e){}}}
+  }
+  render();
+}
+function applyAnswer(pid,r,q,order){
+  const p=S.players[pid];if(!p||S.status!=='playing'||r!==S.round)return;
+  const R=S.rounds[r];const Q=R&&R.questions[q];if(!Q)return;
+  const k=qkey(r,q);if(p.answers[k])return;
+  if(Date.now()>R.startedAt+(q+1)*(R.ready+R.dur)+4000)return;   // too late
+  const evs=Q.evs;
+  if(!Array.isArray(order)||order.length!==evs.length||new Set(order).size!==evs.length||order.some(x=>!(x>=0&&x<evs.length)))return;
+  p.answers[k]=order;p.points[k]=scoreOf(evs,order).pts;p.total=Object.values(p.points).reduce((a,b)=>a+b,0);
+}
+
+// ---------- networking: host ----------
 function hostOpen(resume){
   if(!nick){needNick();return}
+  if(peer){try{peer.destroy()}catch(e){}}peer=null;
   roomCode=load('hostRoom')||genCode();store('hostRoom',roomCode);
+  role='host';myPid='host';clockOff=0;
   let saved=null;if(resume){try{saved=JSON.parse(load('hostState')||'null')}catch(e){}}
-  S=saved||newGameState(false);
-  S.players.host.name=nick;
-  for(const p of Object.values(S.players))if(p!==S.players.host)p.online=false;
-  role='host';myPid='host';mode='group';clockOff=0;
-  store('hostState',JSON.stringify(S));
+  S=saved&&saved.settings?saved:newGameState(false);
+  S.players.host.name=nick;S.players.host.online=true;
+  for(const[id,p]of Object.entries(S.players))if(id!=='host')p.online=false;
+  mode='group';store('hostState',JSON.stringify(S));
   startPeerHost();keepAwake();render();
+}
+function openLocal(){
+  if(peer){try{peer.destroy()}catch(e){}}peer=null;
+  role='local';myPid='me';clockOff=0;roomCode=null;net='ok';S=null;
+  S=newGameState(false);S.settings.totalRounds=1;mode='group';render();
 }
 function startPeerHost(){
   if(peer){try{peer.destroy()}catch(e){}}
@@ -137,8 +176,8 @@ function startPeerHost(){
   });
   peer.on('disconnected',()=>{net='connecting';render();setTimeout(()=>{try{if(peer&&!peer.destroyed)peer.reconnect()}catch(e){}},2000)});
   peer.on('error',e=>{
-    if(e.type==='unavailable-id'){net='connecting';render();setTimeout(startPeerHost,4000)}   // room id still held from a previous visit
-    else if(['network','server-error','socket-error','socket-closed'].includes(e.type)){net='connecting';render();setTimeout(startPeerHost,4000)}
+    if(role!=='host')return;
+    if(e.type==='unavailable-id'||['network','server-error','socket-error','socket-closed'].includes(e.type)){net='connecting';render();setTimeout(()=>{if(role==='host')startPeerHost()},4000)}
   });
 }
 function onHostMsg(c,d){
@@ -150,19 +189,7 @@ function onHostMsg(c,d){
     if(p){p.name=name;p.online=true}else S.players[d.pid]={name,joinedAt:Date.now(),online:true,answers:{},points:{},total:0};
     commit();
   }
-  if(d.t==='answer'&&c.pid){applyAnswer(c.pid,d.r,d.order);commit()}
-}
-function applyAnswer(pid,r,order){
-  const p=S.players[pid];if(!p||S.status!=='playing'||r!==S.round||p.answers[r])return;
-  const evs=S.rounds[r].evs;
-  if(!Array.isArray(order)||order.length!==evs.length||new Set(order).size!==evs.length||order.some(x=>!(x>=0&&x<evs.length)))return;
-  const s=scoreOf(evs,order);p.answers[r]=order;p.points[r]=s.pts;p.total=Object.values(p.points).reduce((a,b)=>a+b,0);
-}
-function commit(){
-  store('hostState',JSON.stringify(S));
-  const now=Date.now();
-  for(const[pid,c]of Object.entries(conns)){if(c.open){try{c.send({t:'state',S,now,you:pid})}catch(e){}}}
-  render();tick();
+  if(d.t==='answer'&&c.pid){applyAnswer(c.pid,d.r,d.q,d.order);commit()}
 }
 let wakeLock=null;
 async function keepAwake(){try{if('wakeLock' in navigator&&document.visibilityState==='visible')wakeLock=await navigator.wakeLock.request('screen')}catch(e){}}
@@ -171,15 +198,16 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 // ---------- networking: client ----------
 function clientJoin(code){
   if(!nick){needNick();return}
-  roomCode=code;role='client';mode='group';
+  roomCode=code;role='client';mode='group';S=null;
   myPid=load('pid_'+code)||rid(10);store('pid_'+code,myPid);
   net='connecting';render();
   if(peer){try{peer.destroy()}catch(e){}}
   peer=new Peer(undefined,{config:ICE,debug:0});
   peer.on('open',()=>connectHost());
   peer.on('error',e=>{
+    if(role!=='client')return;
     if(e.type==='peer-unavailable'){net='nohost';connecting=false;render();setTimeout(connectHost,3000)}
-    else if(['network','server-error','socket-error','socket-closed'].includes(e.type)){net='lost';connecting=false;render();setTimeout(()=>clientJoin(code),4000)}
+    else if(['network','server-error','socket-error','socket-closed'].includes(e.type)){net='lost';connecting=false;render();setTimeout(()=>{if(role==='client')clientJoin(code)},4000)}
   });
   peer.on('disconnected',()=>{setTimeout(()=>{try{if(peer&&!peer.destroyed)peer.reconnect()}catch(e){}},2000)});
 }
@@ -190,29 +218,31 @@ function connectHost(){
   const c=peer.connect(PREFIX+roomCode,{reliable:true});hostConn=c;
   const giveUp=setTimeout(()=>{if(!c.open){connecting=false;try{c.close()}catch(e){};if(net!=='ok'){net='nohost';render()}setTimeout(connectHost,2500)}},9000);
   c.on('open',()=>{clearTimeout(giveUp);connecting=false;net='ok';c.send({t:'hello',pid:myPid,name:nick});render()});
-  c.on('data',d=>{if(d&&d.t==='state'&&d.S){S=d.S;clockOff=d.now-Date.now();render();tick()}});
+  c.on('data',d=>{if(d&&d.t==='state'&&d.S){
+    // keep answers this phone already sent until the host confirms them
+    const mine=S&&S.players[myPid];S=d.S;clockOff=d.now-Date.now();
+    if(mine&&S.players[myPid])for(const[k,v]of Object.entries(mine.answers||{}))if(!S.players[myPid].answers[k]&&sentFor[k])S.players[myPid].answers[k]=v;
+    render()}});
   c.on('close',()=>{clearTimeout(giveUp);connecting=false;if(hostConn===c){net='lost';render();setTimeout(connectHost,2500)}});
   c.on('error',()=>{});
 }
+function leave(){role=null;S=null;mode='home';if(peer){try{peer.destroy()}catch(e){}}peer=null;hostConn=null;conns={};connecting=false;net='idle'}
 
 // ---------- render ----------
 function render(){
   const main=$('#main');
-  if(mode==='group'||mode==='solo'){
+  if(mode==='group'){
+    if(role==='client'&&!S){swap(main,viewConnecting());return netBanner()}
     const c=ctx();
-    if(mode==='group'&&role==='client'&&!S)return swap(main,viewConnecting());
     if(!c){mode='home';return render()}
-    let node;
-    if(c.status==='setup')node=viewSetupRound(c);
-    else if(c.status==='playing'){renderRound(main,c);return netBanner()}
-    else if(c.status==='reveal')node=viewReveal(c);
-    else node=viewFinal(c);
-    swap(main,node);return netBanner();
+    if(c.status==='playing'){renderPlaying(main,c);return netBanner()}
+    swap(main,c.status==='setup'?viewSetupRound(c):c.status==='reveal'?viewReveal(c):viewFinal(c));
+    return netBanner();
   }
-  if(mode==='join')return swap(main,viewJoin());
-  if(mode==='soloSetup')return swap(main,viewSoloSetup());
-  if(mode==='family')return swap(main,viewFamily());
-  swap(main,viewHome());netBanner();
+  if(mode==='join')swap(main,viewJoin());
+  else if(mode==='family')swap(main,viewFamily());
+  else swap(main,viewHome());
+  netBanner();
 }
 function netBanner(){
   const b=$('#net');if(!b)return;
@@ -226,15 +256,9 @@ function swap(main,node){builtKey=null;if(sortable){sortable.destroy();sortable=
   main.replaceChildren(node);
   if(id){const n=document.getElementById(id);if(n&&n!==a&&n.tagName==='INPUT'){n.value=val;n.focus();try{n.setSelectionRange(sel,sel)}catch(e){}}}
 }
-const back=(label='الرئيسية')=>h('button',{class:'link back',onclick:()=>{mode='home';render()}},'→ '+label);
+const back=(label='الرئيسية')=>h('button',{class:'link back',onclick:()=>{if(role==='local')leave();mode='home';render()}},'→ '+label);
 const seg=(label,val,opts,onpick,fmt=num,disabledFn)=>h('div',{class:'field'},h('span',{class:'lbl'},label),
   h('div',{class:'seg'},opts.map(o=>h('button',{class:'chip','aria-pressed':String(val===o),disabled:disabledFn&&disabledFn(o),onclick:()=>onpick(o)},fmt(o)))));
-function catChips(val,onpick,withFamily){
-  return h('div',{class:'chips',role:'group','aria-label':'الفئة'},Object.entries(CATS).filter(([k])=>k!=='family'||withFamily).map(([k,v])=>{
-    const dis=k==='family'&&family.length<3;
-    return h('button',{class:'chip',style:cc(k),'aria-pressed':String(val===k),disabled:dis,onclick:()=>onpick(k)},v.name,h('small',{},dis?'أضف ٣ أحداث على الأقل':v.hint));
-  }));
-}
 function nickField(){
   return h('div',{class:'field'},h('label',{for:'nick'},'اسمك في اللعبة'),
     h('input',{type:'text',id:'nick',maxlength:'24',autocomplete:'nickname',placeholder:'مثلاً: أبو فهد',value:nick,oninput:e=>{nick=e.target.value.trim();store('nick',nick)}}));
@@ -245,31 +269,30 @@ function roomLink(){return location.origin+location.pathname+'?room='+roomCode}
 function viewHome(){
   const wrap=h('div',{class:'stack'});
   wrap.append(h('section',{class:'panel'},nickField()));
-  if(role==='host'&&S){
-    wrap.append(h('section',{class:'panel admin'},h('h3',{},`غرفتك مفتوحة: ${num(roomCode)}`),h('button',{class:'btn primary block',onclick:()=>{mode='group';render()}},'ارجع إلى الغرفة')));
-  }else if(role==='client'&&S){
-    wrap.append(h('section',{class:'panel'},h('h3',{},'أنت في غرفة لعب'),h('button',{class:'btn primary block',onclick:()=>{mode='group';render()}},'ارجع إلى اللعبة')));
+  if((role==='host'||role==='client')&&S){
+    wrap.append(h('section',{class:'panel'+(role==='host'?' admin':'')},h('h3',{},role==='host'?`غرفتك مفتوحة: ${num(roomCode)}`:'أنت في غرفة لعب'),
+      h('button',{class:'btn primary block',onclick:()=>{mode='group';render()}},role==='host'?'ارجع إلى الغرفة':'ارجع إلى اللعبة')));
   }
   if(role!=='host'){
-    const codeIn=h('input',{type:'text',id:'code',inputmode:'numeric',maxlength:'5',placeholder:'مثلاً: 48273',autocomplete:'off'});
     wrap.append(h('section',{class:'panel'},
       h('h2',{},'انضم إلى لعبة'),
       h('p',{class:'muted small'},'افتح الرابط الذي أرسله المدير، أو اكتب رمز الغرفة الظاهر على جواله.'),
-      h('div',{class:'field'},h('label',{for:'code'},'رمز الغرفة'),codeIn),
-      h('button',{class:'btn primary block',onclick:()=>{const v=($('#code').value||'').replace(/[^0-9٠-٩]/g,'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));if(v.length!==5){toast('رمز الغرفة ٥ أرقام');return}clientJoin(v)}},'انضم')));
+      h('div',{class:'field'},h('label',{for:'code'},'رمز الغرفة'),h('input',{type:'text',id:'code',inputmode:'numeric',maxlength:'5',placeholder:'مثلاً: 48273',autocomplete:'off'})),
+      h('button',{class:'btn primary block',onclick:()=>{const v=($('#code').value||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/\D/g,'');if(v.length!==5){toast('رمز الغرفة ٥ أرقام');return}clientJoin(v)}},'انضم')));
   }
   const saved=(()=>{try{return JSON.parse(load('hostState')||'null')}catch(e){return null}})();
+  const canResume=role!=='host'&&saved&&saved.settings&&saved.status!=='done';
   wrap.append(h('section',{class:'panel admin'},
     h('span',{class:'badge'},'للمدير'),
     h('p',{class:'small'},'المدير يفتح الغرفة من جواله، ويتحكم في الإعدادات والجولات وأحداث العائلة. يجب أن تبقى الصفحة مفتوحة على جوال المدير أثناء اللعب.'),
-    role!=='host'&&saved&&saved.status!=='done'?h('button',{class:'btn primary block',onclick:()=>hostOpen(true)},'تابع غرفتي السابقة'):null,
-    role!=='host'?h('button',{class:'btn block'+(saved&&saved.status!=='done'?'':' primary'),onclick:()=>{unstore('hostState');hostOpen(false)}},'افتح غرفة جديدة (أنا المدير)'):null,
+    canResume?h('button',{class:'btn primary block',onclick:()=>hostOpen(true)},'تابع غرفتي السابقة'):null,
+    role!=='host'?h('button',{class:'btn block'+(canResume?'':' primary'),onclick:()=>{unstore('hostState');hostOpen(false)}},'افتح غرفة جديدة (أنا المدير)'):null,
     h('button',{class:'btn block',onclick:()=>{mode='family';render()}},`أحداث العائلة (${num(family.length)})`)));
   wrap.append(h('section',{class:'panel'},
     h('h2',{},'كيف نلعب؟'),
-    h('p',{},'تظهر لكل لاعب نفس الأحداث على جواله بترتيب عشوائي. اسحبها أو حرّكها بالأسهم حتى يصبح الأقدم في الأعلى والأحدث في الأسفل.'),
-    h('p',{class:'muted small'},`لكل حدث ${num(SEC_PER_EVENT)} ثوانٍ، وعند انتهاء الوقت يُرسل ترتيبك تلقائيًا. نقطة لكل حدث في مكانه الصحيح، و٣ نقاط إضافية للترتيب الكامل.`),
-    h('button',{class:'btn block',onclick:()=>{mode='soloSetup';render()}},'تدرّب وحدك')));
+    h('p',{},'في كل سؤال تظهر أحداث من فئة واحدة بترتيب عشوائي. اسحبها أو حرّكها بالأسهم حتى يصبح الأقدم في الأعلى والأحدث في الأسفل.'),
+    h('p',{class:'muted small'},'الفئات تتناوب: تاريخ، ثم كرة، ثم أوبئة… وعندما ينتهي وقت السؤال يُرسل ترتيبك تلقائيًا وتنتقل اللعبة إلى السؤال التالي. نقطة لكل حدث في مكانه الصحيح، و٣ نقاط إضافية للترتيب الكامل.'),
+    role!=='host'&&role!=='client'?h('button',{class:'btn block',onclick:openLocal},'تدرّب وحدك'):null));
   return wrap;
 }
 function viewJoin(){
@@ -284,17 +307,6 @@ function viewConnecting(){
   return h('div',{class:'stack'},h('section',{class:'panel'},h('h2',{},'جارٍ الاتصال بالغرفة…'),
     h('p',{class:'muted'},net==='nohost'?'لم نجد الغرفة بعد. تأكد أن المدير فاتح اللعبة على جواله والرمز صحيح.':'لحظات من فضلك.'),
     h('button',{class:'link',onclick:()=>{leave();render()}},'إلغاء')));
-}
-function leave(){role=null;S=null;mode='home';if(peer){try{peer.destroy()}catch(e){}}peer=null;hostConn=null;conns={};connecting=false;net='idle'}
-
-function viewSoloSetup(){
-  const s=soloSetup,re=()=>render();
-  return h('div',{class:'stack'},back(),h('section',{class:'panel'},
-    h('h2',{},'تدرّب وحدك'),
-    h('div',{class:'field'},h('span',{class:'lbl'},'الفئة'),catChips(s.cat,k=>{s.cat=k;re()},true)),
-    seg('عدد الجولات',s.rounds,[3,5,7],o=>{s.rounds=o;re()}),
-    seg('عدد الأحداث في كل جولة',s.per,[4,5,6],o=>{s.per=o;re()}),
-    h('button',{class:'btn primary block',onclick:startSolo},'ابدأ')));
 }
 
 function peopleList(list,doneFn){
@@ -324,107 +336,132 @@ function roomPanel(){
 
 // waiting room / admin setup before each round
 function viewSetupRound(c){
-  const head=h('div',{class:'status'},h('h2',{},c.r===0?'غرفة الانتظار':`قبل الجولة ${num(c.r+1)}`),h('span',{class:'pill'},`${num(c.players.length)} لاعبين`));
+  const st=S.settings;
+  const head=h('div',{class:'status'},h('h2',{},c.local?'تدرّب وحدك':(c.r===0?'غرفة الانتظار':`قبل الجولة ${num(c.r+1)}`)),c.local?null:h('span',{class:'pill'},`${num(c.players.length)} لاعبين`));
   const out=h('div',{class:'stack'},back(),head);
   if(isAdmin()){
-    const re=()=>render();
-    if(c.r===0)out.append(roomPanel());
+    const set=(k,v)=>{st[k]=v;commit()};
+    const avail=availableCats();
+    const catBox=h('div',{class:'chips',role:'group','aria-label':'الفئات'},Object.entries(CATS).map(([k,v])=>{
+      const dis=!avail.includes(k);const on=st.cats.includes(k)&&!dis;
+      return h('button',{class:'chip',style:cc(k),'aria-pressed':String(on),disabled:dis,onclick:()=>{const s=new Set(st.cats);if(on){if(st.cats.filter(x=>avail.includes(x)).length<=1){toast('اختر فئة واحدة على الأقل');return}s.delete(k)}else s.add(k);set('cats',[...s])}},
+        (on?'✓ ':'')+v.name,h('small',{},dis?'أضف ٣ أحداث على الأقل':v.hint));
+    }));
+    if(role==='host'&&c.r===0)out.append(roomPanel());
     out.append(h('section',{class:'panel admin'},
-      h('span',{class:'badge'},'إعدادات المدير'),
-      seg('طريقة اللعب',S.mode,['solo','teams'],o=>{S.mode=o;commit()},o=>o==='teams'?'فريقان':'كل لاعب وحده'),
-      c.teams?h('div',{class:'stack'},h('p',{class:'muted small'},'اضغط على اسم اللاعب لنقله إلى الفريق الآخر.'),teamsBlock(c,true),
-        h('button',{class:'link',onclick:shuffleTeams},'وزّع الفرق عشوائيًا')):peopleList(c.players),
-      seg('عدد الجولات',c.total,[3,5,7],o=>{S.totalRounds=o;commit()},num,o=>o<c.r+1),
-      h('div',{class:'field'},h('span',{class:'lbl'},`فئة الجولة ${num(c.r+1)}`),catChips(pick.cat,k=>{pick.cat=k;re()},true)),
-      seg('عدد الأحداث في الجولة',pick.per,[4,5,6],o=>{pick.per=o;re()}),
-      h('p',{class:'muted small'},`الوقت: ${num(pick.per*SEC_PER_EVENT)} ثانية (${num(SEC_PER_EVENT)} ثوانٍ لكل حدث).`),
-      h('button',{class:'btn primary block',onclick:()=>startRound(c)},`ابدأ الجولة ${num(c.r+1)} من ${num(c.total)}`)));
-    if(c.r>0)out.append(roomPanel());
+      h('span',{class:'badge'},c.local?'الإعدادات':'إعدادات المدير'),
+      c.local?null:seg('طريقة اللعب',st.mode,['solo','teams'],o=>set('mode',o),o=>o==='teams'?'فريقان':'كل لاعب وحده'),
+      c.local?null:(c.teams?h('div',{class:'stack'},h('p',{class:'muted small'},'اضغط على اسم اللاعب لنقله إلى الفريق الآخر.'),teamsBlock(c,true),
+        h('button',{class:'link',onclick:shuffleTeams},'وزّع الفرق عشوائيًا')):peopleList(c.players)),
+      h('div',{class:'field'},h('span',{class:'lbl'},'الفئات (تتناوب سؤالًا بعد سؤال)'),catBox),
+      c.local?null:seg('عدد الجولات',st.totalRounds,[1,2,3,5],o=>set('totalRounds',o),num,o=>o<c.r+1),
+      seg('عدد الأحداث في كل سؤال',st.perQ,[3,4,5],o=>set('perQ',o)),
+      seg('وقت كل سؤال (ثانية)',st.secs,[6,10,15],o=>set('secs',o)),
+      h('p',{class:'muted small'},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة. مدة الجولة تقريبًا: ${num(Math.ceil(QUESTIONS_PER_ROUND*(st.secs+READY_MS/1000)))} ثانية.`),
+      h('button',{class:'btn primary block',onclick:()=>startRound(c)},c.local?'ابدأ':`ابدأ الجولة ${num(c.r+1)} من ${num(c.total)}`)));
+    if(role==='host'&&c.r>0)out.append(roomPanel());
   }else{
     out.append(h('section',{class:'panel'},
       c.r===0?h('p',{},'أنت في الغرفة ✓ انتظر حتى يبدأ المدير.'):null,
       h('h3',{},`المدير يجهّز الجولة ${num(c.r+1)} من ${num(c.total)}…`),
-      h('p',{class:'muted'},c.teams?'اللعب بنظام الفريقين':'كل لاعب يلعب وحده'),
+      h('p',{class:'muted'},`${num(QUESTIONS_PER_ROUND)} أسئلة · ${num(st.secs)} ثوانٍ لكل سؤال · ${c.teams?'فريقان':'كل لاعب وحده'}`),
       c.teams?teamsBlock(c,false):peopleList(c.players)));
   }
-  if(c.r>0)out.append(h('section',{class:'panel'},h('h3',{},'النتائج حتى الآن'),board(c,c.r-1)));
+  if(c.r>0&&!c.local)out.append(h('section',{class:'panel'},h('h3',{},'النتائج حتى الآن'),board(c,c.r-1)));
   return out;
 }
 
-function renderRound(main,c){
-  const evs=c.cur?c.cur.evs:[];const cat=c.cur?c.cur.cat:'arab';
-  const key=c.key+':'+c.r;
-  const submitted=c.me&&c.me.answers&&c.me.answers[c.r];
-  const buildKey=key+(submitted?':done':'');
-  if(builtKey!==buildKey){
-    swap(main,h('div',{class:'stack'},
-      h('div',{class:'status'},h('h2',{},`الجولة ${num(c.r+1)} من ${num(c.total)}`),h('span',{class:'tag',style:cc(cat)},CATS[cat].name)),
-      h('div',{class:'timer',id:'timer'},h('div',{class:'bar'},h('i',{})),h('span',{class:'sec'},'')),
-      h('section',{class:'panel'},
-        h('div',{class:'ends'},h('span',{},'▲ الأقدم'),h('span',{},'الأحدث ▼')),
-        h('ol',{class:'order'+(submitted?' locked':''),id:'order'}),
-        submitted?h('p',{class:'ok'},'تم إرسال ترتيبك ✓'):h('button',{class:'btn primary block',id:'submit',onclick:()=>submitRound(c)},'أرسل ترتيبي')),
-      h('section',{class:'panel',id:'roundStatus'})));
-    builtKey=buildKey;
-    const list=$('#order');
-    const order=submitted?c.me.answers[c.r]:(drafts[key]||evs.map((_,i)=>i));
-    order.forEach(ix=>list.append(eventCard(evs[ix],ix,!submitted,key)));
-    if(!submitted&&window.Sortable)sortable=Sortable.create(list,{animation:150,delay:100,delayOnTouchOnly:true,filter:'.mv',preventOnFilter:false,onEnd:()=>saveDraft(key)});
+// one question at a time, driven by the clock
+function renderPlaying(main,c){
+  const R=c.R;if(!R)return;
+  const ph=phase(R);
+  const pk=ph.over?`${c.key}:${c.r}:over`:`${c.key}:${c.r}:${ph.q}:${ph.stage}`;
+  if(builtKey===pk)return updateClock(ph);
+  // leaving an answer screen: send what the player has right now
+  if(answering&&answering!==pk&&$('#order'))finalize(answering);
+  answering=null;
+  const n=R.questions.length;
+  let node;
+  if(ph.over){
+    node=h('section',{class:'panel',style:'text-align:center;align-items:center'},h('h2',{},'انتهت الجولة!'),h('p',{class:'muted'},'نجمع الإجابات ونحسب النقاط…'));
+  }else{
+    const Q=R.questions[ph.q];
+    const prog=h('div',{class:'status'},h('h2',{},`سؤال ${num(ph.q+1)} من ${num(n)}`),h('span',{class:'tag',style:cc(Q.cat)},CATS[Q.cat].name));
+    const timer=h('div',{class:'timer',id:'timer'},h('div',{class:'bar'},h('i',{})),h('span',{class:'sec'},''));
+    if(ph.stage==='ready'){
+      node=h('div',{class:'stack'},prog,
+        h('section',{class:'panel ready',style:cc(Q.cat)},h('p',{class:'muted'},'استعد… السؤال التالي من'),h('div',{class:'readycat'},CATS[Q.cat].name),
+          h('p',{class:'muted small'},`رتّب ${num(Q.evs.length)} أحداث خلال ${num(Math.round(R.dur/1000))} ثوانٍ`)),timer);
+    }else{
+      answering=pk;
+      const list=h('ol',{class:'order',id:'order'});
+      const k=qkey(c.r,ph.q);
+      (drafts[k]||Q.evs.map((_,i)=>i)).forEach(ix=>list.append(eventCard(Q.evs[ix],ix,k)));
+      node=h('div',{class:'stack'},prog,timer,
+        h('section',{class:'panel'},h('div',{class:'ends'},h('span',{},'▲ الأقدم'),h('span',{},'الأحدث ▼')),list,
+          h('p',{class:'muted small'},'يُرسل ترتيبك تلقائيًا عند انتهاء الوقت.')));
+    }
   }
-  tick();
-  const st=$('#roundStatus');
-  if(c.kind==='solo'){st.replaceChildren(h('p',{class:'muted small'},'رتّب ثم اضغط «أرسل ترتيبي» قبل انتهاء الوقت.'));return}
-  const n=c.players.filter(p=>p.answers&&p.answers[c.r]).length;
-  st.replaceChildren(
-    h('div',{class:'status'},h('h3',{},'من أرسل؟'),h('span',{class:'pill'},`${num(n)} من ${num(c.players.length)}`)),
-    peopleList(c.players,p=>p.answers&&p.answers[c.r]),
-    isAdmin()?h('button',{class:'btn block',onclick:()=>{S.status='reveal';commit()}},'اكشف الترتيب الصحيح الآن'):null);
+  swap(main,node);builtKey=pk;
+  const list=$('#order');
+  if(list&&window.Sortable){const k=qkey(c.r,ph.q);sortable=Sortable.create(list,{animation:120,delay:60,delayOnTouchOnly:true,filter:'.mv',preventOnFilter:false,onEnd:()=>{drafts[k]=currentOrder()}})}
+  updateClock(ph);
 }
-function eventCard(e,ix,movable,key){
+function updateClock(ph){
+  const t=$('#timer');if(!t||ph.over)return;
+  const frac=Math.max(0,Math.min(1,ph.left/ph.span));
+  t.querySelector('i').style.transform=`scaleX(${frac})`;
+  t.querySelector('.sec').textContent=num(Math.max(0,Math.ceil(ph.left/1000)));
+  t.classList.toggle('low',ph.stage==='answer'&&ph.left<=3000);
+  t.classList.toggle('wait',ph.stage==='ready');
+}
+function eventCard(e,ix,k){
   const li=h('li',{'data-ix':ix,style:cc(e.c)},
     h('div',{},h('div',{class:'t',text:e.t}),e.n?h('div',{class:'n',text:e.n}):null),
     h('div',{class:'mvs'},
-      h('button',{class:'mv','aria-label':'حرّك للأعلى',disabled:!movable,onclick:ev=>{ev.stopPropagation();const p=li.previousElementSibling;if(p){li.parentNode.insertBefore(li,p);saveDraft(key);li.querySelector('.mv').focus()}}},'▲'),
-      h('button',{class:'mv','aria-label':'حرّك للأسفل',disabled:!movable,onclick:ev=>{ev.stopPropagation();const n=li.nextElementSibling;if(n){li.parentNode.insertBefore(n,li);saveDraft(key);li.querySelectorAll('.mv')[1].focus()}}},'▼')));
+      h('button',{class:'mv','aria-label':'حرّك للأعلى',onclick:ev=>{ev.stopPropagation();const p=li.previousElementSibling;if(p){li.parentNode.insertBefore(li,p);drafts[k]=currentOrder()}}},'▲'),
+      h('button',{class:'mv','aria-label':'حرّك للأسفل',onclick:ev=>{ev.stopPropagation();const n=li.nextElementSibling;if(n){li.parentNode.insertBefore(n,li);drafts[k]=currentOrder()}}},'▼')));
   return li;
 }
 const currentOrder=()=>[...$('#order').children].map(li=>+li.dataset.ix);
-function saveDraft(key){drafts[key]=currentOrder()}
-
-// timer loop: updates the bar, auto-submits at zero, host reveals when time is up
-function tick(){
-  if(mode!=='group'&&mode!=='solo')return;
-  const c=ctx();if(!c||c.status!=='playing')return;
-  const key=c.key+':'+c.r;const dl=c.deadline;
-  const dur=c.duration||1;const left=Math.max(0,Math.min(dur,dl-Date.now()));
-  const t=$('#timer');
-  if(t){t.querySelector('i').style.transform=`scaleX(${left/dur})`;t.querySelector('.sec').textContent=num(Math.ceil(left/1000));t.classList.toggle('low',left<=Math.min(6000,dur*.3))}
-  const submitted=c.me&&c.me.answers&&c.me.answers[c.r];
-  if(left<=0&&!submitted&&!sentFor[key]&&$('#order')){toast('انتهى الوقت! أُرسل ترتيبك.');submitRound(c)}
-  if(c.kind==='group'&&isAdmin()&&!revealFor[key]){
-    const active=c.players.filter(p=>p.online!==false||(p.answers&&p.answers[c.r]));
-    const all=active.length&&active.every(p=>p.answers&&p.answers[c.r]);
-    if(all||Date.now()>dl+2500){revealFor[key]=true;setTimeout(()=>{if(S.status==='playing'&&S.gameId+':'+S.round===key){S.status='reveal';commit()}},all?800:0)}
-  }
+function finalize(pk){
+  const parts=pk.split(':');const r=+parts[1],q=+parts[2];const k=qkey(r,q);
+  if(sentFor[k])return;sentFor[k]=true;
+  const order=currentOrder();
+  if(isAdmin()){applyAnswer(myPid,r,q,order);commit();return}
+  const me=S.players[myPid];if(me)me.answers[k]=order;
+  if(hostConn&&hostConn.open){try{hostConn.send({t:'answer',r,q,order})}catch(e){}}
 }
-setInterval(tick,250);
+
+// clock loop: moves between questions; the admin's phone ends the round
+function tick(){
+  if(mode!=='group'||!S||S.status!=='playing')return;
+  const c=ctx();if(!c.R)return;
+  renderPlaying($('#main'),c);
+  const ph=phase(c.R);
+  if(ph.over&&isAdmin()&&!revealFor[c.key+c.r]&&ph.since>(role==='local'?300:2500)){revealFor[c.key+c.r]=true;S.status='reveal';commit()}
+}
+setInterval(tick,200);
 
 function viewReveal(c){
-  const evs=c.cur?c.cur.evs:[];const cat=c.cur?c.cur.cat:'arab';const corr=correctOrder(evs);
-  const mine=c.me&&c.me.answers&&c.me.answers[c.r];
-  const res=mine?scoreOf(evs,mine):null;
-  const tl=h('ol',{class:'tl'},corr.map((ix,pos)=>{const e=evs[ix];const myPos=mine?mine.indexOf(ix):-1;
-    return h('li',{style:cc(e.c)},h('div',{class:'yr'},fmtDate(e)),
-      h('div',{class:'body'},h('strong',{text:e.t}),
-        mine?(myPos===pos?h('span',{class:'ok small'},'✓ في مكانه الصحيح'):h('span',{class:'no small'},`✗ وضعته في المركز ${num(myPos+1)}، مكانه ${num(pos+1)}`)):null))}));
-  const last=c.r>=c.total-1;
+  const R=c.R;const me=c.me;const last=c.r>=c.total-1;
+  const mine=me?roundPts(me,c.r):0;const maxPts=R.questions.reduce((s,Q)=>s+Q.evs.length+3,0);
+  const cards=R.questions.map((Q,qi)=>{
+    const k=qkey(c.r,qi);const ans=me&&me.answers[k];const corr=correctOrder(Q.evs);const res=ans?scoreOf(Q.evs,ans):null;
+    return h('section',{class:'qcard',style:cc(Q.cat)},
+      h('div',{class:'status'},h('span',{class:'tag'},`${num(qi+1)} · ${CATS[Q.cat].name}`),
+        res?h('span',{class:res.perfect?'ok small':'muted small'},res.perfect?`✓ كامل +${num(res.pts)}`:`${num(res.hits)}/${num(Q.evs.length)} +${num(res.pts)}`):h('span',{class:'no small'},'لم يُرسل')),
+      h('ol',{class:'mini'},corr.map((ix,pos)=>h('li',{},h('span',{class:'y'},num(Q.evs[ix].y)),h('span',{class:'tt',text:Q.evs[ix].t}),
+        ans?h('span',{class:ans.indexOf(ix)===pos?'ok':'no'},ans.indexOf(ix)===pos?'✓':'✗'):null))));
+  });
   return h('div',{class:'stack'},
-    h('div',{class:'status'},h('h2',{},`الترتيب الصحيح للجولة ${num(c.r+1)}`),h('span',{class:'tag',style:cc(cat)},CATS[cat].name)),
-    res?h('section',{class:'panel'},h('div',{class:'row'},h('span',{class:'big'},'+'+num(res.pts)),
-      h('p',{},res.perfect?'ترتيب كامل! حصلت على ٣ نقاط إضافية.':`${num(res.hits)} من ${num(evs.length)} أحداث في مكانها الصحيح.`))):h('p',{class:'muted'},'لم تُرسل ترتيبًا في هذه الجولة.'),
-    tl,
-    c.kind==='group'?h('section',{class:'panel'},h('h3',{},'النتائج حتى الآن'),board(c,c.r)):null,
-    (c.kind==='solo'||isAdmin())?h('button',{class:'btn primary block',onclick:()=>advance(c,last)},last?'اعرض النتيجة النهائية':(c.kind==='solo'?'الجولة التالية':'جهّز الجولة التالية')):h('p',{class:'muted'},'ننتظر المدير لتجهيز الجولة التالية…'));
+    h('div',{class:'status'},h('h2',{},c.local?'نتيجتك':`نتائج الجولة ${num(c.r+1)}`)),
+    h('section',{class:'panel'},h('div',{class:'row'},h('span',{class:'big'},'+'+num(mine)),h('p',{},`نقاطك في هذه الجولة من أصل ${num(maxPts)}`))),
+    c.local?null:h('section',{class:'panel'},h('h3',{},'الترتيب حتى الآن'),board(c,c.r)),
+    h('h3',{},'الإجابات الصحيحة (من الأقدم إلى الأحدث)'),
+    ...cards,
+    isAdmin()?h('button',{class:'btn primary block',onclick:()=>advance(c,last)},c.local?'العب مرة ثانية':(last?'اعرض النتيجة النهائية':'جهّز الجولة التالية')):h('p',{class:'muted'},'ننتظر المدير لتجهيز الجولة التالية…'),
+    c.local?back():null);
 }
 function teamTotals(c){
   const t={A:{pts:0,mem:[]},B:{pts:0,mem:[]}};
@@ -435,29 +472,27 @@ function board(c,r){
   if(c.teams){
     const t=teamTotals(c);const order=['A','B'].sort((a,b)=>t[b].pts-t[a].pts);
     return h('div',{class:'stack'},order.map(k=>{
-      const rp=r!=null?t[k].mem.reduce((s,p)=>s+((p.points||{})[r]||0),0):null;
+      const rp=r!=null?t[k].mem.reduce((s,p)=>s+roundPts(p,r),0):null;
       return h('div',{class:'team-score',style:`--tc:${TEAMS[k].v}`},
         h('span',{class:'tn'},TEAMS[k].name,rp?h('span',{class:'plus'},'+'+num(rp)):null),
         h('span',{class:'tp'},num(t[k].pts)),
         h('span',{class:'mem'},t[k].mem.map(p=>`${p.name||'لاعب'} ${num(p.total||0)}`).join(' · ')||'لا أحد'))}));
   }
   const rows=[...c.players].sort((a,b)=>(b.total||0)-(a.total||0));
-  return h('table',{class:'sc'},h('tbody',{},rows.map((p,i)=>h('tr',{},
-    h('td',{class:'rk'},num(i+1)),h('td',{class:p.id===myPid?'me':''},(p.name||'لاعب')+(p.id===myPid?' (أنت)':''),r!=null&&p.points&&p.points[r]!=null?h('span',{class:'plus'},'+'+num(p.points[r])):null),
-    h('td',{class:'num'},num(p.total||0)+' نقطة')))));
+  return h('table',{class:'sc'},h('tbody',{},rows.map((p,i)=>{const rp=r!=null?roundPts(p,r):0;return h('tr',{},
+    h('td',{class:'rk'},num(i+1)),h('td',{class:p.id===myPid?'me':''},(p.name||'لاعب')+(p.id===myPid?' (أنت)':''),rp?h('span',{class:'plus'},'+'+num(rp)):null),
+    h('td',{class:'num'},num(p.total||0)+' نقطة'))})));
 }
 function viewFinal(c){
   let title,sub;
-  if(c.kind==='solo'){title=`${num(c.players[0].total)} نقطة`;sub='جرّب فئة أخرى أو العب مرة ثانية.'}
-  else if(c.teams){const t=teamTotals(c);const w=t.A.pts===t.B.pts?null:(t.A.pts>t.B.pts?'A':'B');title=w?TEAMS[w].name:'تعادل!';sub=w?`${num(t[w].pts)} نقطة`:`${num(t.A.pts)} لكل فريق`}
+  if(c.teams){const t=teamTotals(c);const w=t.A.pts===t.B.pts?null:(t.A.pts>t.B.pts?'A':'B');title=w?TEAMS[w].name:'تعادل!';sub=w?`${num(t[w].pts)} نقطة`:`${num(t.A.pts)} لكل فريق`}
   else{const top=[...c.players].sort((a,b)=>(b.total||0)-(a.total||0))[0];title=top?top.name:'—';sub=top?`${num(top.total||0)} نقطة`:''}
   return h('div',{class:'stack'},
     h('section',{class:'panel',style:'text-align:center;align-items:center'},
-      h('p',{class:'muted'},c.kind==='solo'?'نتيجتك':'الفائز 🏆'),
+      h('p',{class:'muted'},'الفائز 🏆'),
       h('h2',{style:'font-size:2rem;color:var(--gold)'},title),h('p',{},sub)),
-    c.kind==='group'?h('section',{class:'panel'},h('h3',{},'الترتيب النهائي'),board(c,null)):null,
-    c.kind==='solo'?h('button',{class:'btn primary block',onclick:()=>{mode='soloSetup';render()}},'العب مرة ثانية'):
-      (isAdmin()?h('button',{class:'btn primary block',onclick:()=>{S=newGameState(true);commit()}},'لعبة جديدة بنفس اللاعبين'):h('p',{class:'muted'},'إذا بدأ المدير لعبة جديدة ستظهر هنا تلقائيًا.')),
+    h('section',{class:'panel'},h('h3',{},'الترتيب النهائي'),board(c,null)),
+    isAdmin()?h('button',{class:'btn primary block',onclick:()=>{S=newGameState(true);commit()}},'لعبة جديدة بنفس اللاعبين'):h('p',{class:'muted'},'إذا بدأ المدير لعبة جديدة ستظهر هنا تلقائيًا.'),
     back());
 }
 
@@ -468,7 +503,7 @@ function viewFamily(){
     h('section',{class:'panel admin',style:cc('family')},
       h('span',{class:'badge'},'للمدير · تُحفظ على هذا الجوال فقط'),
       h('h2',{},'أضف حدثًا عائليًا'),
-      h('p',{class:'muted small'},'مثل: زواج جدي، ولادة أول حفيد، الانتقال إلى البيت الجديد. تظهر في فئة «أحداث العائلة» عندما تفتح الغرفة من هذا الجوال، ولا يراها اللاعبون قبل الجولة.'),
+      h('p',{class:'muted small'},'مثل: زواج جدي، ولادة أول حفيد، الانتقال إلى البيت الجديد. تظهر في فئة «أحداث العائلة» عندما تفتح الغرفة من هذا الجوال، ولا يراها اللاعبون قبل السؤال.'),
       h('form',{class:'stack',onsubmit:addFamily},
         h('div',{class:'field'},h('label',{for:'ft'},'الحدث'),h('input',{type:'text',id:'ft',maxlength:'90',required:true,placeholder:'مثلاً: ولادة سارة'})),
         h('div',{class:'row'},
@@ -489,35 +524,24 @@ function saveFamily(){store('family',JSON.stringify(family))}
 function moveTeam(p){const cur=teamOf(p,playerList());S.teams={...(S.teams||{}),[p.id]:cur==='A'?'B':'A'};commit()}
 function shuffleTeams(){const t={};shuffle(playerList()).forEach((p,i)=>t[p.id]=i%2?'B':'A');S.teams=t;commit()}
 function startRound(c){
-  const used=new Set(S.used||[]);
-  const evs=pickRound(pick.cat,pick.per,used);
-  if(!evs){toast('لا توجد أحداث كافية في هذه الفئة');return}
-  evs.forEach(e=>used.add(e.t));
+  const st=S.settings;const avail=availableCats();
+  const cats=st.cats.filter(k=>avail.includes(k));
+  if(!cats.length){toast('اختر فئة واحدة على الأقل');return}
+  const used=new Set(S.used||[]);const questions=[];
+  for(const cat of categorySequence(cats,QUESTIONS_PER_ROUND)){
+    const evs=pickQuestion(cat,st.perQ,used);if(!evs)continue;
+    evs.forEach(e=>used.add(e.t));questions.push({cat,evs});
+  }
+  if(!questions.length){toast('لا توجد أحداث كافية');return}
   const list=playerList();const teams={...(S.teams||{})};list.forEach(p=>{teams[p.id]=teamOf(p,list)});
-  S.rounds[c.r]={cat:pick.cat,evs};S.used=[...used];S.teams=teams;S.status='playing';S.startedAt=Date.now();S.duration=evs.length*SEC_PER_EVENT*1000;
+  S.rounds[c.r]={questions,startedAt:Date.now()+800,ready:READY_MS,dur:st.secs*1000};
+  S.used=[...used];S.teams=teams;S.status='playing';
   commit();
-}
-function submitRound(c){
-  const key=c.key+':'+c.r;if(sentFor[key])return;sentFor[key]=true;
-  const order=currentOrder();
-  if(c.kind==='solo'){const s=scoreOf(c.cur.evs,order);solo.answers[c.r]=order;solo.points[c.r]=s.pts;solo.status='reveal';render();return}
-  if(role==='host'){applyAnswer('host',c.r,order);commit();return}
-  if(hostConn&&hostConn.open){
-    hostConn.send({t:'answer',r:c.r,order});
-    const me=S.players[myPid];if(me){me.answers={...(me.answers||{}),[c.r]:order}}   // show as sent until the host confirms
-    render();
-  }else{sentFor[key]=false;toast('لا يوجد اتصال بجوال المدير، حاول مرة أخرى.')}
 }
 function advance(c,last){
-  if(c.kind==='solo'){if(last)solo.status='done';else{solo.round++;solo.status='playing';solo.startedAt=Date.now()}render();scrollTo(0,0);return}
+  if(role==='local'){const st=S.settings;S=newGameState(false);S.settings=st;commit();return}
   if(last)S.status='done';else{S.status='setup';S.round=c.r+1}
   commit();
-}
-function startSolo(){
-  const used=new Set();const rounds=[];
-  for(let i=0;i<soloSetup.rounds;i++){const evs=pickRound(soloSetup.cat,soloSetup.per,used);if(!evs)break;evs.forEach(e=>used.add(e.t));rounds.push({cat:soloSetup.cat,evs})}
-  if(!rounds.length){toast('لا توجد أحداث كافية في هذه الفئة');return}
-  solo={id:Date.now(),rounds,round:0,status:'playing',answers:{},points:{},startedAt:Date.now()};mode='solo';render();
 }
 function addFamily(ev){
   ev.preventDefault();
@@ -530,7 +554,7 @@ function addFamily(ev){
 // scroll to top when the game moves to a new screen
 let lastRk='';
 const _render=render;
-render=function(){const rk=mode+(S?S.gameId+S.status+S.round:'')+(solo?solo.round+solo.status:'');if(rk!==lastRk){lastRk=rk;_render();scrollTo(0,0)}else _render()};
+render=function(){const rk=mode+(S?S.gameId+S.status+S.round:'');if(rk!==lastRk){lastRk=rk;_render();scrollTo(0,0)}else _render()};
 
 // ---------- boot ----------
 if(urlRoom&&/^\d{5}$/.test(urlRoom)){
