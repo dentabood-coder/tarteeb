@@ -256,8 +256,7 @@ function howTo(){
   return h('section',{class:'panel'},
     h('h3',{},'كيف نلعب؟'),
     h('p',{},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة. في كل سؤال تظهر أحداث من فئة واحدة بترتيب عشوائي: اسحبها أو حرّكها بالأسهم حتى يصبح الأقدم في الأعلى والأحدث في الأسفل.`),
-    h('p',{class:'muted small'},'عندما ينتهي وقت السؤال يُرسل ترتيبك تلقائيًا وتنتقل اللعبة إلى السؤال التالي. نقطة لكل حدث في مكانه الصحيح، و٣ نقاط إضافية للترتيب الكامل.'),
-    h('a',{class:'link',href:'references.html'},'مصادر الأسئلة'));
+    h('p',{class:'muted small'},'عندما ينتهي وقت السؤال يُرسل ترتيبك تلقائيًا وتنتقل اللعبة إلى السؤال التالي. نقطة لكل حدث في مكانه الصحيح، و٣ نقاط إضافية للترتيب الكامل.'));
 }
 function viewConnecting(){
   return h('div',{class:'stack'},h('section',{class:'panel',style:'text-align:center;align-items:center'},
@@ -385,7 +384,8 @@ function viewAdminSetup(c){
       seg('وقت كل سؤال (ثانية)',st.secs,[6,10,15],o=>set('secs',o)),
       h('p',{class:'muted small'},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة، ومدتها تقريبًا ${num(Math.ceil(QUESTIONS_PER_ROUND*(st.secs+READY_MS/1000)))} ثانية.`),
       h('div',{class:'row'},h('button',{class:'link',onclick:()=>{view='family';render()}},`أحداث العائلة (${num(family.length)})`),
-        h('button',{class:'link',onclick:()=>{view='history';render()}},`سجل الألعاب السابقة (${num((S.history||[]).length)})`))),
+        h('button',{class:'link',onclick:()=>{view='history';render()}},`سجل الألعاب السابقة (${num((S.history||[]).length)})`),
+        h('a',{class:'link',href:'references.html',target:'_blank',rel:'noopener'},'مصادر الأسئلة'))),
     h('button',{class:'btn primary block big-start',disabled:!online.length,onclick:()=>startRound(c)},online.length?`ابدأ الجولة ${num(c.r+1)} للجميع`:'بانتظار دخول اللاعبين…'));
   if(c.r>0)out.append(h('section',{class:'panel'},h('h3',{},'النتائج حتى الآن'),board(c,c.r-1)));
   if(c.players.some(p=>(p.total||0)>0))out.append(h('button',{class:'btn block',onclick:resetGame},'ابدأ لعبة جديدة (تصفير النتائج وحفظها في السجل)'));
