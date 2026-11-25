@@ -40,7 +40,7 @@ let myPid=null,peer=null,conns={},hostConn=null,clockOff=0,net='idle',connecting
 let family=[];try{family=JSON.parse(load('family')||'[]')}catch(e){family=[]}
 let nick=load('nick')||'';
 let view='main';          // 'main' | 'family' (admin) | 'history'
-let drafts={},sortable=null,builtKey=null,answering=null,sentFor={},revealFor={};
+let drafts={},builtKey=null,answering=null,sentFor={},revealFor={};
 const isAdmin=()=>PAGE==='admin';
 const hostNow=()=>Date.now()+clockOff;
 
@@ -258,7 +258,7 @@ function netBanner(){
   else if(joined&&S&&net!=='ok')msg='انقطع الاتصال بالمدير… نحاول من جديد';
   b.textContent=msg;b.hidden=!msg;
 }
-function swap(main,node){builtKey=null;if(sortable){sortable.destroy();sortable=null}
+function swap(main,node){builtKey=null;
   const a=document.activeElement,id=a&&a.id,val=a&&a.value,sel=a&&a.selectionStart;
   main.replaceChildren(node);
   if(id){const n=document.getElementById(id);if(n&&n!==a&&n.tagName==='INPUT'){n.value=val;n.focus();try{n.setSelectionRange(sel,sel)}catch(e){}}}
@@ -292,7 +292,7 @@ function viewWelcome(){
 function howTo(){
   return h('section',{class:'panel'},
     h('h3',{},'كيف نلعب؟'),
-    h('p',{},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة. في كل سؤال تظهر أحداث من فئة واحدة بترتيب عشوائي: اسحبها أو حرّكها بالأسهم حتى يصبح الأقدم في الأعلى والأحدث في الأسفل.`),
+    h('p',{},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة. في كل سؤال تظهر أحداث من فئة واحدة: اضغط عليها بالترتيب، الأقدم أولًا ثم الذي بعده حتى الأحدث. للتراجع اضغط على الحدث مرة أخرى.`),
     h('p',{class:'muted small'},'عندما ينتهي وقت السؤال يُرسل ترتيبك تلقائيًا وتنتقل اللعبة إلى السؤال التالي. نقطة لكل حدث في مكانه الصحيح، و٣ نقاط إضافية للترتيب الكامل.'));
 }
 function viewRemoved(){
@@ -350,15 +350,16 @@ function renderPlaying(main,c){
       answering=pk;
       const k=qkey(c.r,ph.q);
       const list=h('ol',{class:'order',id:'order'});
-      (drafts[k]||Q.evs.map((_,i)=>i)).forEach(ix=>list.append(eventCard(Q.evs[ix],ix,k)));
+      tapState={k,n:Q.evs.length,picks:drafts[k]||[]};
+      Q.evs.forEach((e,ix)=>list.append(eventCard(e,ix)));
       node=h('div',{class:'stack'},prog,timer,
-        h('section',{class:'panel'},h('div',{class:'ends'},h('span',{},'▲ الأقدم'),h('span',{},'الأحدث ▼')),list,
-          h('p',{class:'muted small'},'يُرسل ترتيبك تلقائيًا عند انتهاء الوقت.')));
+        h('section',{class:'panel'},h('p',{class:'tapnote'},'اضغط على الأحداث بالترتيب: ',h('strong',{},'الأقدم أولًا'),' ثم الذي بعده'),list,
+          h('div',{class:'tapbar'},h('span',{id:'tapdone',class:'ok small'}),h('button',{class:'link',id:'tapclear',onclick:()=>{tapState.picks=[];syncTaps()}},'امسح'))));
     }
   }
   swap(main,node);builtKey=pk;
   const list=$('#order');
-  if(list&&window.Sortable){const k=qkey(c.r,ph.q);sortable=Sortable.create(list,{animation:120,delay:60,delayOnTouchOnly:true,filter:'.mv',preventOnFilter:false,onEnd:()=>{drafts[k]=currentOrder()}})}
+  if(list)syncTaps();
   updateClock(ph);
 }
 function updateClock(ph){
@@ -369,15 +370,38 @@ function updateClock(ph){
   t.classList.toggle('low',ph.stage==='answer'&&ph.left<=3000);
   t.classList.toggle('wait',ph.stage==='ready');
 }
-function eventCard(e,ix,k){
-  const li=h('li',{'data-ix':ix,style:cc(e.c)},
-    h('div',{},h('div',{class:'t',text:e.t}),e.n?h('div',{class:'n',text:e.n}):null),
-    h('div',{class:'mvs'},
-      h('button',{class:'mv','aria-label':'حرّك للأعلى',onclick:ev=>{ev.stopPropagation();const p=li.previousElementSibling;if(p){li.parentNode.insertBefore(li,p);drafts[k]=currentOrder()}}},'▲'),
-      h('button',{class:'mv','aria-label':'حرّك للأسفل',onclick:ev=>{ev.stopPropagation();const n=li.nextElementSibling;if(n){li.parentNode.insertBefore(n,li);drafts[k]=currentOrder()}}},'▼')));
-  return li;
+// tap-in-order: tapping a card gives it the next number; tapping a numbered card removes it
+// and every number after it. When one card is left it is numbered automatically.
+let tapState=null;
+function eventCard(e,ix){
+  return h('li',{},h('button',{type:'button',class:'tapcard','data-ix':ix,style:cc(e.c),onclick:()=>tapEvent(ix)},
+    h('span',{class:'pk','aria-hidden':'true'}),
+    h('span',{class:'tx'},h('span',{class:'t',text:e.t}),e.n?h('span',{class:'n',text:e.n}):null)));
 }
-const currentOrder=()=>[...$('#order').children].map(li=>+li.dataset.ix);
+function tapEvent(ix){
+  if(!tapState)return;
+  const p=tapState.picks;const at=p.indexOf(ix);
+  if(at>=0)p.splice(at);else p.push(ix);
+  if(p.length===tapState.n-1){for(let i=0;i<tapState.n;i++)if(!p.includes(i)){p.push(i);break}}
+  syncTaps();
+}
+function syncTaps(){
+  if(!tapState)return;const p=tapState.picks;drafts[tapState.k]=[...p];
+  document.querySelectorAll('#order .tapcard').forEach(b=>{
+    const pos=p.indexOf(+b.dataset.ix);
+    b.classList.toggle('on',pos>=0);
+    b.querySelector('.pk').textContent=pos>=0?num(pos+1):'';
+    b.setAttribute('aria-label',b.querySelector('.t').textContent+(pos>=0?`، الترتيب ${num(pos+1)}`:''));
+  });
+  const done=$('#tapdone');if(done)done.textContent=p.length===tapState.n?'ترتيبك جاهز ✓ يُرسل عند انتهاء الوقت':'';
+  const clr=$('#tapclear');if(clr)clr.hidden=!p.length;
+}
+// the answer: tapped events first, in tap order, then any untapped ones as they appear
+const currentOrder=()=>{
+  const all=[...document.querySelectorAll('#order .tapcard')].map(b=>+b.dataset.ix);
+  const p=tapState?tapState.picks.filter(i=>all.includes(i)):[];
+  return [...p,...all.filter(i=>!p.includes(i))];
+};
 // answers wait here until the admin's state shows them, and are resent on every update or reconnect
 let outbox={};
 function finalize(pk){

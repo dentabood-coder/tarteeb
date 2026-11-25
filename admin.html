@@ -191,6 +191,20 @@ tr.meRow td{background:color-mix(in srgb,var(--accent) 10%,transparent)}
 .tnames input{border-inline-start:5px solid var(--tc)}
 .pact{display:flex;gap:10px;align-items:center}
 .tsel{width:auto;min-height:40px;padding:6px 8px;max-width:9em}
+.tapnote{text-align:center;color:var(--muted)}
+.tapnote strong{color:var(--ink)}
+ol.order li{display:block;padding:0;border:0;background:none;counter-increment:none;cursor:default}
+ol.order li::before{content:none}
+.tapcard{appearance:none;width:100%;display:grid;grid-template-columns:48px 1fr;gap:12px;align-items:center;text-align:start;background:var(--surface);border:2px solid var(--line);border-inline-start:6px solid var(--cc);border-radius:14px;padding:12px;min-height:64px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:inherit;color:inherit}
+.tapcard .pk{width:42px;height:42px;border-radius:50%;border:2px dashed var(--line);display:grid;place-items:center;font-family:var(--display);font-size:1.4rem;line-height:1}
+.tapcard .tx{display:flex;flex-direction:column;gap:2px;min-width:0}
+.tapcard .t{font-weight:700;font-size:1.05rem}
+.tapcard .n{font-size:.82rem;color:var(--muted)}
+.tapcard.on{border-color:var(--cc);background:color-mix(in srgb,var(--cc) 10%,var(--surface))}
+.tapcard.on .pk{border:0;background:var(--cc);color:var(--surface)}
+.tapcard:active{transform:scale(.98)}
+.tapcard:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.tapbar{display:flex;justify-content:space-between;align-items:center;min-height:2em}
 #net{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--gold);color:#1a1300;font-weight:700;text-align:center;padding:8px 16px;border-radius:0 0 12px 12px}
 </style>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
@@ -207,9 +221,8 @@ tr.meRow td{background:color-mix(in srgb,var(--accent) 10%,transparent)}
 </div>
 <div id="toast" hidden></div>
 <script src="lib/peerjs.min.js"></script>
-<script src="lib/Sortable.min.js"></script>
 <script src="lib/qrcode.js"></script>
-<script src="events.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script src="events.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>
