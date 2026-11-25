@@ -6,7 +6,14 @@ const QUESTIONS_PER_ROUND=7;            // every round has 7 questions
 const ROOM_ID='tarteeb-family-room-v2'; // fixed room, so the player link never changes
 const ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:global.stun.twilio.com:3478'}]};
 const MONTHS=['','يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
-const TEAMS={A:{name:'فريق الصقور',v:'var(--team-a)'},B:{name:'فريق النخيل',v:'var(--team-b)'}};
+// up to 6 teams; the admin picks how many and can rename them
+const TEAM_IDS=['A','B','C','D','E','F'];
+const TEAM_DEFAULTS=['فريق الصقور','فريق النخيل','فريق النجوم','فريق الفرسان','فريق البرق','فريق الأسود'];
+function teamDefs(){
+  const st=S&&S.settings||{};const n=Math.max(2,Math.min(6,st.teamCount||2));const names=st.teamNames||[];
+  return TEAM_IDS.slice(0,n).map((id,i)=>({id,name:(names[i]||'').trim()||TEAM_DEFAULTS[i],v:`var(--team-${id.toLowerCase()})`}));
+}
+const teamInfo=id=>{const d=teamDefs();return d.find(t=>t.id===id)||d[0]};
 
 // ---------- helpers ----------
 const $=s=>document.querySelector(s);
@@ -72,7 +79,8 @@ function categorySequence(cats,n){
 }
 function availableCats(){return Object.keys(CATS).filter(k=>k!=='family'||family.length>=3)}
 function playerList(){if(!S)return[];return Object.entries(S.players).map(([id,p])=>({id,...p})).sort((a,b)=>(a.joinedAt||0)-(b.joinedAt||0))}
-function teamOf(p,list){const t=(S&&S.teams||{})[p.id];if(t)return t;const i=list.findIndex(x=>x.id===p.id);return i%2?'B':'A'}
+// a player's team: the admin's choice, otherwise spread out by the order players joined
+function teamOf(p){const d=teamDefs();const t=(S&&S.teams||{})[p.id];if(t&&d.some(x=>x.id===t))return t;const i=Math.max(0,playerList().findIndex(x=>x.id===p.id));return d[i%d.length].id}
 const roundPts=(p,r)=>Object.entries(p.points||{}).reduce((s,[k,v])=>k.startsWith(r+'_')?s+v:s,0);
 const ranked=list=>[...list].sort((a,b)=>(b.total||0)-(a.total||0));
 
@@ -100,8 +108,8 @@ function recordGame(finished){
   if(!list.some(p=>(p.total||0)>0))return;
   const teams=S.settings.mode==='teams';
   const entry={id:S.gameId,at:Date.now(),finished,teams,rounds:S.rounds.length,
-    players:list.map(p=>({n:p.name||'لاعب',t:p.total||0,team:teams?teamOf(p,list):null}))};
-  if(teams){const t={A:0,B:0};entry.players.forEach(p=>t[p.team]+=p.t);entry.teamTotals=t}
+    players:list.map(p=>({n:p.name||'لاعب',t:p.total||0,tn:teams?teamInfo(teamOf(p,list)).name:null}))};
+  if(teams)entry.teamList=teamTotals({players:list}).map(t=>({name:t.name,pts:t.pts}));
   const hist=(S.history||[]).filter(x=>x.id!==entry.id);hist.unshift(entry);
   S.history=hist.slice(0,30);store('history',JSON.stringify(S.history));
 }
@@ -266,10 +274,10 @@ function peopleList(list,doneFn){
   return h('div',{class:'people'},list.length?list.map(p=>h('span',{class:(doneFn&&doneFn(p)?'done ':'')+(p.id===myPid?'me ':'')+(p.online===false?'off':'')},(p.name||'لاعب')+(p.id===myPid?' (أنت)':''))):h('span',{class:'muted'},'لا أحد بعد'));
 }
 function teamsBlock(c,editable){
-  const col=k=>{const mem=c.players.filter(p=>teamOf(p,c.players)===k);
-    return h('div',{class:'team',style:`--tc:${TEAMS[k].v}`},h('h3',{},TEAMS[k].name),
-      h('div',{class:'people'},mem.length?mem.map(p=>editable?h('button',{title:'انقله إلى الفريق الآخر',class:p.online===false?'off':'',onclick:()=>moveTeam(p)},(p.name||'لاعب')+' ⇄'):h('span',{class:p.id===myPid?'me':''},(p.name||'لاعب')+(p.id===myPid?' (أنت)':''))):h('span',{class:'muted'},'لا أحد')))};
-  return h('div',{class:'teams'},col('A'),col('B'));
+  const col=t=>{const mem=c.players.filter(p=>teamOf(p,c.players)===t.id);
+    return h('div',{class:'team',style:`--tc:${t.v}`},h('h3',{},t.name),
+      h('div',{class:'people'},mem.length?mem.map(p=>editable?h('button',{title:'انقله إلى الفريق التالي',class:p.online===false?'off':'',onclick:()=>moveTeam(p)},(p.name||'لاعب')+' ⇄'):h('span',{class:p.id===myPid?'me':''},(p.name||'لاعب')+(p.id===myPid?' (أنت)':''))):h('span',{class:'muted'},'لا أحد')))};
+  return h('div',{class:'teams'},teamDefs().map(col));
 }
 
 // ---------- player screens ----------
@@ -300,7 +308,7 @@ function viewConnecting(){
     h('p',{class:'muted'},net==='nohost'?'ابقَ في هذه الصفحة، وستدخل تلقائيًا عندما يفتح المدير الغرفة.':'لحظات من فضلك.')));
 }
 function viewGetReady(c){
-  const st=S.settings;const myTeam=c.teams&&c.me?TEAMS[teamOf(c.me,c.players)]:null;
+  const st=S.settings;const myTeam=c.teams&&c.me?teamInfo(teamOf(c.me,c.players)):null;
   const out=h('div',{class:'stack'},
     h('section',{class:'panel getready'},
       h('div',{class:'spinner','aria-hidden':'true'}),
@@ -421,7 +429,9 @@ function managePlayers(c){
     h('ul',{class:'plist'},c.players.map(p=>h('li',{},
       h('span',{class:'dot'+(p.online===false?' off':'')}),
       h('span',{class:'pn'},p.name||'لاعب',h('span',{class:'muted small'},p.online===false?' · غير متصل':' · متصل'),(p.total||0)>0?h('span',{class:'muted small'},` · ${num(p.total)} نقطة`):null),
-      h('button',{class:'link danger-link',onclick:()=>removePlayer(p.id)},'أخرج')))),
+      h('span',{class:'pact'},
+        c.teams?h('select',{class:'tsel','aria-label':`فريق ${p.name||'اللاعب'}`,onchange:e=>setTeam(p.id,e.target.value)},teamDefs().map(t=>h('option',{value:t.id,selected:t.id===teamOf(p,c.players)},t.name))):null,
+        h('button',{class:'link danger-link',onclick:()=>removePlayer(p.id)},'أخرج'))))),
     offline.length?h('button',{class:'btn block',onclick:()=>{offline.forEach(p=>removePlayer(p.id,true));commit();toast('أُخرج غير المتصلين')}},`أخرج كل غير المتصلين (${num(offline.length)})`):null);
 }
 function removePlayer(id,silent){
@@ -445,8 +455,8 @@ function viewAdminSetup(c){
     linkPanel(),
     h('section',{class:'panel'},
       h('h3',{},'اللاعبون'),
-      seg('طريقة اللعب',st.mode,['solo','teams'],o=>set('mode',o),o=>o==='teams'?'فريقان':'كل لاعب وحده'),
-      c.teams?h('div',{class:'stack'},h('p',{class:'muted small'},'اضغط على اسم اللاعب لنقله إلى الفريق الآخر.'),teamsBlock(c,true),
+      seg('طريقة اللعب',st.mode,['solo','teams'],o=>set('mode',o),o=>o==='teams'?'فرق':'كل لاعب وحده'),
+      c.teams?h('div',{class:'stack'},teamSettings(st),h('p',{class:'muted small'},'اضغط على اسم اللاعب لنقله إلى الفريق التالي، أو اختر فريقه من «إدارة اللاعبين».'),teamsBlock(c,true),
         h('button',{class:'link',onclick:shuffleTeams},'وزّع الفرق عشوائيًا')):peopleList(c.players),
       c.players.some(p=>p.online===false)?h('p',{class:'muted small'},'الأسماء المشطوبة غير متصلة الآن.'):null,
       managePlayers(c)),
@@ -489,7 +499,7 @@ function myScore(c){
   if(!c.me)return null;
   const list=ranked(c.players);const rank=list.findIndex(p=>p.id===myPid)+1;
   return h('div',{class:'mine'},h('span',{},'نقاطك: ',h('strong',{},num(c.me.total||0))),h('span',{},'ترتيبك: ',h('strong',{},`${num(rank)} من ${num(list.length)}`)),
-    c.teams?h('span',{style:`color:${TEAMS[teamOf(c.me,c.players)].v}`},TEAMS[teamOf(c.me,c.players)].name):null);
+    c.teams?h('span',{style:`color:${teamInfo(teamOf(c.me,c.players)).v}`},teamInfo(teamOf(c.me,c.players)).name):null);
 }
 function viewReveal(c){
   const R=c.R;const me=c.me;const last=c.r>=c.total-1;
@@ -510,10 +520,16 @@ function viewReveal(c){
     h('h3',{},'الإجابات الصحيحة (من الأقدم إلى الأحدث)'),
     ...cards);
 }
+// teams sorted by points, highest first
 function teamTotals(c){
-  const t={A:{pts:0,mem:[]},B:{pts:0,mem:[]}};
-  c.players.forEach(p=>{const k=teamOf(p,c.players);t[k].pts+=p.total||0;t[k].mem.push(p)});
-  return t;
+  const t=teamDefs().map(d=>({...d,pts:0,mem:[]}));
+  c.players.forEach(p=>{const k=teamOf(p,c.players);const x=t.find(d=>d.id===k);if(x){x.pts+=p.total||0;x.mem.push(p)}});
+  return t.sort((a,b)=>b.pts-a.pts);
+}
+function winnerText(list){
+  if(!list.length)return{title:'—',sub:''};
+  const top=list.filter(t=>t.pts===list[0].pts);
+  return top.length>1?{title:'تعادل!',sub:`${top.map(t=>t.name).join(' و ')} · ${num(top[0].pts)} نقطة`}:{title:top[0].name,sub:`${num(top[0].pts)} نقطة`};
 }
 function playersTable(c,r){
   return h('table',{class:'sc'},h('tbody',{},ranked(c.players).map((p,i)=>{const rp=r!=null?roundPts(p,r):0;return h('tr',{class:p.id===myPid?'meRow':''},
@@ -522,18 +538,17 @@ function playersTable(c,r){
 }
 function board(c,r){
   if(!c.teams)return playersTable(c,r);
-  const t=teamTotals(c);const order=['A','B'].sort((a,b)=>t[b].pts-t[a].pts);
-  return h('div',{class:'stack'},order.map(k=>{
-    const rp=r!=null?t[k].mem.reduce((s,p)=>s+roundPts(p,r),0):null;
-    return h('div',{class:'team-score',style:`--tc:${TEAMS[k].v}`},
-      h('span',{class:'tn'},TEAMS[k].name,rp?h('span',{class:'plus'},'+'+num(rp)):null),
-      h('span',{class:'tp'},num(t[k].pts)),
-      h('span',{class:'mem'},t[k].mem.map(p=>`${p.name||'لاعب'} ${num(p.total||0)}`).join(' · ')||'لا أحد'))}),
+  return h('div',{class:'stack'},teamTotals(c).map((t,i)=>{
+    const rp=r!=null?t.mem.reduce((s,p)=>s+roundPts(p,r),0):null;
+    return h('div',{class:'team-score',style:`--tc:${t.v}`},
+      h('span',{class:'tn'},`${num(i+1)}. ${t.name}`,rp?h('span',{class:'plus'},'+'+num(rp)):null),
+      h('span',{class:'tp'},num(t.pts)),
+      h('span',{class:'mem'},t.mem.map(p=>`${p.name||'لاعب'} ${num(p.total||0)}`).join(' · ')||'لا أحد'))}),
     h('p',{class:'lbl'},'ترتيب اللاعبين'),playersTable(c,r));
 }
 function viewFinal(c){
   let title,sub;
-  if(c.teams){const t=teamTotals(c);const w=t.A.pts===t.B.pts?null:(t.A.pts>t.B.pts?'A':'B');title=w?TEAMS[w].name:'تعادل!';sub=w?`${num(t[w].pts)} نقطة`:`${num(t.A.pts)} لكل فريق`}
+  if(c.teams){({title,sub}=winnerText(teamTotals(c)))}
   else{const top=ranked(c.players)[0];title=top?top.name:'—';sub=top?`${num(top.total||0)} نقطة`:''}
   return h('div',{class:'stack'},
     h('section',{class:'panel winner'},
@@ -558,14 +573,16 @@ function viewHistory(){
       h('div',{class:'row'},h('button',{class:'btn danger',onclick:clearHistory},'نعم، احذف الكل'),h('button',{class:'btn',onclick:()=>{confirmClear=false;render()}},'إلغاء'))):
       h('button',{class:'btn block',onclick:()=>{confirmClear=true;render()}},'احذف السجل كله')):null,
     hist.length?h('div',{class:'hist'},hist.map(g=>{
-      const tw=g.teams&&g.teamTotals?(g.teamTotals.A===g.teamTotals.B?'تعادل':TEAMS[g.teamTotals.A>g.teamTotals.B?'A':'B'].name):null;
+      const OLD={A:'فريق الصقور',B:'فريق النخيل'};
+      const tl=g.teamList||(g.teamTotals?Object.entries(g.teamTotals).map(([k,v])=>({name:OLD[k]||k,pts:v})).sort((a,b)=>b.pts-a.pts):null);
+      const tw=g.teams&&tl?winnerText(tl).title+(tl.filter(t=>t.pts===tl[0].pts).length>1?' · '+tl.filter(t=>t.pts===tl[0].pts).map(t=>t.name).join(' و '):''):null;
       return h('section',{class:'hcard'},
         h('div',{class:'status'},h('span',{class:'when'},when(g.at)+(g.finished?'':' · لم تكتمل')),
           isAdmin()?h('button',{class:'link danger-link','aria-label':'احذف هذه النتيجة',onclick:()=>deleteHistory(g.id)},'احذف'):null),
         h('div',{class:'win'},'🏆 '+(g.teams?tw:(g.players[0]?g.players[0].n:'—'))),
-        g.teams&&g.teamTotals?h('p',{class:'small'},`${TEAMS.A.name}: ${num(g.teamTotals.A)} · ${TEAMS.B.name}: ${num(g.teamTotals.B)}`):null,
+        g.teams&&tl?h('p',{class:'small'},tl.map(t=>`${t.name}: ${num(t.pts)}`).join(' · ')):null,
         h('table',{class:'sc'},h('tbody',{},g.players.map((p,i)=>h('tr',{},
-          h('td',{class:'rk'},num(i+1)),h('td',{},p.n,p.team?h('span',{class:'muted small'},' · '+TEAMS[p.team].name):null),h('td',{class:'num'},num(p.t)+' نقطة'))))));
+          h('td',{class:'rk'},num(i+1)),h('td',{},p.n,(p.tn||p.team)?h('span',{class:'muted small'},' · '+(p.tn||OLD[p.team]||p.team)):null),h('td',{class:'num'},num(p.t)+' نقطة'))))));
     })):h('p',{class:'muted'},'لا توجد ألعاب سابقة بعد. عندما تنتهي لعبة أو يبدأ المدير لعبة جديدة تُحفظ النتائج هنا.'));
 }
 function viewRefs(){
@@ -607,8 +624,18 @@ function viewFamily(){
 function saveFamily(){store('family',JSON.stringify(family));if(S&&S.settings&&family.length>=3&&!S.settings.cats.includes('family')){S.settings.cats.push('family');commit()}}
 
 // ---------- admin actions ----------
-function moveTeam(p){const cur=teamOf(p,playerList());S.teams={...(S.teams||{}),[p.id]:cur==='A'?'B':'A'};commit()}
-function shuffleTeams(){const t={};shuffle(playerList()).forEach((p,i)=>t[p.id]=i%2?'B':'A');S.teams=t;commit()}
+function setTeam(pid,tid){S.teams={...(S.teams||{}),[pid]:tid};commit()}
+function moveTeam(p){const d=teamDefs();const i=d.findIndex(t=>t.id===teamOf(p,playerList()));setTeam(p.id,d[(i+1)%d.length].id)}
+function shuffleTeams(){const d=teamDefs();const t={};shuffle(playerList()).forEach((p,i)=>t[p.id]=d[i%d.length].id);S.teams=t;commit()}
+function teamSettings(st){
+  const set=(k,v)=>{st[k]=v;commit()};
+  const names=teamDefs().map(t=>t.name);
+  return h('div',{class:'stack'},
+    seg('عدد الفرق',st.teamCount||2,[2,3,4,5,6],o=>{st.teamCount=o;st.teamNames=names.concat(TEAM_DEFAULTS.slice(names.length)).slice(0,6);commit()}),
+    h('div',{class:'field'},h('span',{class:'lbl'},'أسماء الفرق'),
+      h('div',{class:'tnames'},teamDefs().map((t,i)=>h('input',{type:'text',id:'tname'+i,maxlength:'20',value:t.name,'aria-label':`اسم الفريق ${num(i+1)}`,style:`--tc:${t.v}`,
+        onchange:e=>{const arr=[...(st.teamNames||[])];while(arr.length<6)arr.push('');arr[i]=e.target.value.trim()||TEAM_DEFAULTS[i];set('teamNames',arr)}})))));
+}
 function startRound(c){
   const st=S.settings;const avail=availableCats();
   const cats=st.cats.filter(k=>avail.includes(k));

@@ -17,7 +17,7 @@
   --bg:#edf1ef; --surface:#ffffff; --surface-2:#f6f8f7; --ink:#10201f; --muted:#5b6b69; --line:#cfd9d6;
   --accent:#0e6b62; --accent-ink:#ffffff; --gold:#c98a12; --good:#18794e; --bad:#b3343a;
   --c-arab:#b8720c; --c-islam:#18794e; --c-cup:#1f5fbf; --c-plague:#b3343a; --c-family:#7a4bb8; --c-tv:#b03a7a; --c-sira:#0f6e8c;
-  --team-a:#1f5fbf; --team-b:#b8720c;
+  --team-a:#1f5fbf; --team-b:#b8720c; --team-c:#18794e; --team-d:#7a4bb8; --team-e:#b3343a; --team-f:#0f6e8c;
   --display:"Reem Kufi","IBM Plex Sans Arabic",Tahoma,sans-serif;
   --body:"IBM Plex Sans Arabic",Tahoma,"Segoe UI",sans-serif;
   --r:14px;
@@ -26,13 +26,13 @@
   --bg:#0c1413; --surface:#14201f; --surface-2:#192826; --ink:#e6efed; --muted:#93a6a3; --line:#2a3d3b;
   --accent:#3fbfae; --accent-ink:#06211e; --gold:#f0b84a; --good:#4cc48a; --bad:#f07479;
   --c-arab:#e9a640; --c-islam:#4cc48a; --c-cup:#6fa3f2; --c-plague:#f07479; --c-family:#b38cf0; --c-tv:#ee8fc0; --c-sira:#5cc3e0;
-  --team-a:#6fa3f2; --team-b:#e9a640;
+  --team-a:#6fa3f2; --team-b:#e9a640; --team-c:#4cc48a; --team-d:#b38cf0; --team-e:#f07479; --team-f:#5cc3e0;
   color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0c1413; --surface:#14201f; --surface-2:#192826; --ink:#e6efed; --muted:#93a6a3; --line:#2a3d3b;
   --accent:#3fbfae; --accent-ink:#06211e; --gold:#f0b84a; --good:#4cc48a; --bad:#f07479;
   --c-arab:#e9a640; --c-islam:#4cc48a; --c-cup:#6fa3f2; --c-plague:#f07479; --c-family:#b38cf0; --c-tv:#ee8fc0; --c-sira:#5cc3e0;
-  --team-a:#6fa3f2; --team-b:#e9a640;
+  --team-a:#6fa3f2; --team-b:#e9a640; --team-c:#4cc48a; --team-d:#b38cf0; --team-e:#f07479; --team-f:#5cc3e0;
   color-scheme:dark}
 html,body{background:var(--bg);color:var(--ink)}
 body{font-family:var(--body);font-size:16px;line-height:1.6}
@@ -120,7 +120,7 @@ table.sc td.rk{width:30px;font-family:var(--display);color:var(--muted)}
 .people .done{border-color:var(--good);color:var(--good)}
 
 /* teams */
-.teams{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.teams{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
 .team{border:2px solid var(--tc);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0}
 .team h3{color:var(--tc)}
 .team .people button{cursor:pointer;border-color:var(--tc)}
@@ -186,6 +186,10 @@ tr.meRow td{background:color-mix(in srgb,var(--accent) 10%,transparent)}
 .plist .pn{min-width:0;font-weight:700}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--good)}
 .dot.off{background:var(--muted)}
+.tnames{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.tnames input{border-inline-start:5px solid var(--tc)}
+.pact{display:flex;gap:10px;align-items:center}
+.tsel{width:auto;min-height:40px;padding:6px 8px;max-width:9em}
 #net{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--gold);color:#1a1300;font-weight:700;text-align:center;padding:8px 16px;border-radius:0 0 12px 12px}
 </style>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
@@ -204,7 +208,7 @@ tr.meRow td{background:color-mix(in srgb,var(--accent) 10%,transparent)}
 <script src="lib/peerjs.min.js"></script>
 <script src="lib/Sortable.min.js"></script>
 <script src="lib/qrcode.js"></script>
-<script src="events.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="events.js?v=10"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
