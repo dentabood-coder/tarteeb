@@ -31,7 +31,7 @@ let S=null;               // shared game state (admin page owns it, players rece
 let myPid=null,peer=null,conns={},hostConn=null,clockOff=0,net='idle',connecting=false,joined=false;
 let family=[];try{family=JSON.parse(load('family')||'[]')}catch(e){family=[]}
 let nick=load('nick')||'';
-let view='main';          // admin: 'main' | 'family'
+let view='main';          // 'main' | 'family' (admin) | 'history'
 let drafts={},sortable=null,builtKey=null,answering=null,sentFor={},revealFor={};
 const isAdmin=()=>PAGE==='admin';
 const hostNow=()=>Date.now()+clockOff;
@@ -82,11 +82,25 @@ function phase(R){
 }
 
 // ================= ADMIN: owns the game =================
-function defaultSettings(){return{mode:'solo',totalRounds:3,perQ:3,secs:6,cats:availableCats()}}
+function defaultSettings(){return{mode:'solo',totalRounds:3,perQ:3,secs:6,cats:availableCats(),v2:true}}
+function loadHistory(){try{return JSON.parse(load('history')||'[]')}catch(e){return[]}}
+// save the finished (or abandoned) game's standings so everyone can look back at it
+function recordGame(finished){
+  if(!S)return;
+  const list=ranked(playerList());
+  if(!list.some(p=>(p.total||0)>0))return;
+  const teams=S.settings.mode==='teams';
+  const entry={id:S.gameId,at:Date.now(),finished,teams,rounds:S.rounds.length,
+    players:list.map(p=>({n:p.name||'لاعب',t:p.total||0,team:teams?teamOf(p,list):null}))};
+  if(teams){const t={A:0,B:0};entry.players.forEach(p=>t[p.team]+=p.t);entry.teamTotals=t}
+  const hist=(S.history||[]).filter(x=>x.id!==entry.id);hist.unshift(entry);
+  S.history=hist.slice(0,30);store('history',JSON.stringify(S.history));
+}
+function resetGame(){recordGame(S.status==='done');S=newGameState(true);commit();toast('بدأت لعبة جديدة والنتائج صفر')}
 function newGameState(keep){
   const players={};
   if(keep&&S)for(const[id,p]of Object.entries(S.players))players[id]={name:p.name,joinedAt:p.joinedAt,online:p.online,answers:{},points:{},total:0};
-  return{gameId:rid(8),status:'setup',settings:keep&&S?S.settings:defaultSettings(),round:0,rounds:[],used:[],teams:keep&&S?S.teams:{},players};
+  return{gameId:rid(8),status:'setup',settings:keep&&S?S.settings:defaultSettings(),round:0,rounds:[],used:[],teams:keep&&S?S.teams:{},players,history:S&&S.history?S.history:loadHistory()};
 }
 function commit(){
   if(isAdmin()){
@@ -108,6 +122,8 @@ function applyAnswer(pid,r,q,order){
 function adminBoot(){
   let saved=null;try{saved=JSON.parse(load('hostState')||'null')}catch(e){}
   S=saved&&saved.settings&&saved.status!=='done'?saved:newGameState(false);
+  if(!S.history)S.history=loadHistory();
+  if(!S.settings.v2){S.settings.v2=true;if(!S.settings.cats.includes('tv'))S.settings.cats.push('tv')}
   if(S.status==='playing'){S.status='setup'}            // a round cut off by a reload starts over
   for(const p of Object.values(S.players))p.online=false;
   store('hostState',JSON.stringify(S));
@@ -183,6 +199,8 @@ document.addEventListener('visibilitychange',()=>{
 function render(){
   const main=$('#main');
   netBanner();
+  if(view==='history'&&S&&S.status==='playing')view='main';   // never miss a round that just started
+  if(view==='history')return swap(main,viewHistory());
   if(isAdmin()){
     if(view==='family')return swap(main,viewFamily());
     const c=ctx();
@@ -261,7 +279,7 @@ function viewGetReady(c){
       c.teams?teamsBlock(c,false):peopleList(c.players.filter(p=>p.online!==false))));
   if(c.r>0)out.append(h('section',{class:'panel'},h('h3',{},'النتائج حتى الآن'),myScore(c),board(c,c.r-1)));
   else out.append(howTo());
-  out.append(h('button',{class:'link',onclick:changeName},'غيّر اسمي'));
+  out.append(h('div',{class:'row'},h('button',{class:'link',onclick:()=>{view='history';render()}},'سجل الألعاب السابقة'),h('button',{class:'link',onclick:changeName},'غيّر اسمي')));
   return out;
 }
 function changeName(){joined=false;if(peer){try{peer.destroy()}catch(e){}}peer=null;hostConn=null;S=null;connecting=false;net='idle';render()}
@@ -366,9 +384,11 @@ function viewAdminSetup(c){
       seg('عدد الأحداث في كل سؤال',st.perQ,[3,4,5],o=>set('perQ',o)),
       seg('وقت كل سؤال (ثانية)',st.secs,[6,10,15],o=>set('secs',o)),
       h('p',{class:'muted small'},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة، ومدتها تقريبًا ${num(Math.ceil(QUESTIONS_PER_ROUND*(st.secs+READY_MS/1000)))} ثانية.`),
-      h('button',{class:'link',onclick:()=>{view='family';render()}},`أحداث العائلة (${num(family.length)})`)),
+      h('div',{class:'row'},h('button',{class:'link',onclick:()=>{view='family';render()}},`أحداث العائلة (${num(family.length)})`),
+        h('button',{class:'link',onclick:()=>{view='history';render()}},`سجل الألعاب السابقة (${num((S.history||[]).length)})`))),
     h('button',{class:'btn primary block big-start',disabled:!online.length,onclick:()=>startRound(c)},online.length?`ابدأ الجولة ${num(c.r+1)} للجميع`:'بانتظار دخول اللاعبين…'));
   if(c.r>0)out.append(h('section',{class:'panel'},h('h3',{},'النتائج حتى الآن'),board(c,c.r-1)));
+  if(c.players.some(p=>(p.total||0)>0))out.append(h('button',{class:'btn block',onclick:resetGame},'ابدأ لعبة جديدة (تصفير النتائج وحفظها في السجل)'));
   out.append(h('p',{class:'muted small'},'أبقِ هذه الصفحة مفتوحة طوال اللعب، فهي التي تدير الغرفة.'));
   return out;
 }
@@ -447,9 +467,26 @@ function viewFinal(c){
       h('h2',{},title),h('p',{},sub),
       c.me?myScore(c):null),
     h('section',{class:'panel'},h('h3',{},'لوحة الترتيب النهائية'),board(c,null)),
-    isAdmin()?h('button',{class:'btn primary block',onclick:()=>{S=newGameState(true);commit()}},'لعبة جديدة بنفس اللاعبين'):h('p',{class:'muted'},'شكرًا على اللعب! إذا بدأ المدير لعبة جديدة ستظهر هنا تلقائيًا.'));
+    isAdmin()?h('button',{class:'btn primary block',onclick:resetGame},'لعبة جديدة بنفس اللاعبين (النتائج تبدأ من صفر)'):h('p',{class:'muted'},'شكرًا على اللعب! إذا بدأ المدير لعبة جديدة ستظهر هنا تلقائيًا.'),
+    h('button',{class:'link',onclick:()=>{view='history';render()}},'سجل الألعاب السابقة'));
 }
 
+function viewHistory(){
+  const hist=(S&&S.history)||[];
+  const when=t=>{const d=new Date(t);return d.toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('ar-EG',{hour:'numeric',minute:'2-digit'})};
+  return h('div',{class:'stack'},
+    h('button',{class:'link back',onclick:()=>{view='main';render()}},'→ رجوع'),
+    h('h2',{},'سجل الألعاب السابقة'),
+    hist.length?h('div',{class:'hist'},hist.map(g=>{
+      const tw=g.teams&&g.teamTotals?(g.teamTotals.A===g.teamTotals.B?'تعادل':TEAMS[g.teamTotals.A>g.teamTotals.B?'A':'B'].name):null;
+      return h('section',{class:'hcard'},
+        h('div',{class:'when'},when(g.at)+(g.finished?'':' · لم تكتمل')),
+        h('div',{class:'win'},'🏆 '+(g.teams?tw:(g.players[0]?g.players[0].n:'—'))),
+        g.teams&&g.teamTotals?h('p',{class:'small'},`${TEAMS.A.name}: ${num(g.teamTotals.A)} · ${TEAMS.B.name}: ${num(g.teamTotals.B)}`):null,
+        h('table',{class:'sc'},h('tbody',{},g.players.map((p,i)=>h('tr',{},
+          h('td',{class:'rk'},num(i+1)),h('td',{},p.n,p.team?h('span',{class:'muted small'},' · '+TEAMS[p.team].name):null),h('td',{class:'num'},num(p.t)+' نقطة'))))));
+    })):h('p',{class:'muted'},'لا توجد ألعاب سابقة بعد. عندما تنتهي لعبة أو يبدأ المدير لعبة جديدة تُحفظ النتائج هنا.'));
+}
 function viewFamily(){
   const sorted=[...family].sort((a,b)=>cmp({y:+a.year,m:+a.month||0},{y:+b.year,m:+b.month||0}));
   const monthSel=h('select',{id:'fm'},MONTHS.map((m,i)=>h('option',{value:i},i?m:'— بدون شهر —')));
@@ -493,7 +530,7 @@ function startRound(c){
   commit();
 }
 function advance(c,last){
-  if(last)S.status='done';else{S.status='setup';S.round=c.r+1}
+  if(last){S.status='done';recordGame(true)}else{S.status='setup';S.round=c.r+1}
   commit();
 }
 function addFamily(ev){
