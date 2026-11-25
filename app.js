@@ -28,6 +28,7 @@ const playerUrl=()=>location.origin+location.pathname.replace(/[^/]*$/,'');
 
 // ---------- state ----------
 let S=null;               // shared game state (admin page owns it, players receive copies)
+let removed=false,rejoining=false;
 let myPid=null,peer=null,conns={},hostConn=null,clockOff=0,net='idle',connecting=false,joined=false;
 let family=[];try{family=JSON.parse(load('family')||'[]')}catch(e){family=[]}
 let nick=load('nick')||'';
@@ -145,11 +146,27 @@ function startPeerHost(){
     else if(['network','server-error','socket-error','socket-closed'].includes(e.type)){net='connecting';render();setTimeout(startPeerHost,4000)}
   });
 }
+const lastSeen={};
+// players ping every few seconds; anyone silent for 12 s is shown as not connected
+setInterval(()=>{
+  if(!isAdmin()||!S)return;let changed=false;const now=Date.now();
+  for(const[id,p]of Object.entries(S.players)){
+    const alive=!!(conns[id]&&conns[id].open&&now-(lastSeen[id]||0)<12000);
+    if(p.online!==alive){p.online=alive;changed=true}
+  }
+  if(changed)commit();
+},3000);
 function onHostMsg(c,d){
   if(!d||typeof d!=='object')return;
+  if(c.pid)lastSeen[c.pid]=Date.now();
+  if(d.t==='ping')return;
   if(d.t==='hello'&&typeof d.pid==='string'&&d.pid.length<40){
+    if((S.kicked||[]).includes(d.pid)){
+      if(!d.rejoin){try{c.send({t:'removed'})}catch(e){}setTimeout(()=>{try{c.close()}catch(e){}},300);return}
+      S.kicked=S.kicked.filter(x=>x!==d.pid);
+    }
     const name=String(d.name||'لاعب').slice(0,24);
-    c.pid=d.pid;if(conns[d.pid]&&conns[d.pid]!==c){try{conns[d.pid].close()}catch(e){}}conns[d.pid]=c;
+    c.pid=d.pid;lastSeen[d.pid]=Date.now();if(conns[d.pid]&&conns[d.pid]!==c){try{conns[d.pid].close()}catch(e){}}conns[d.pid]=c;
     const p=S.players[d.pid];
     if(p){p.name=name;p.online=true}else S.players[d.pid]={name,joinedAt:Date.now(),online:true,answers:{},points:{},total:0};
     commit();
@@ -180,8 +197,9 @@ function connectHost(){
   connecting=true;
   const c=peer.connect(ROOM_ID,{reliable:true});hostConn=c;
   const giveUp=setTimeout(()=>{if(!c.open){connecting=false;try{c.close()}catch(e){};if(net!=='ok'){net='nohost';render()}setTimeout(connectHost,2500)}},9000);
-  c.on('open',()=>{clearTimeout(giveUp);connecting=false;net='ok';c.send({t:'hello',pid:myPid,name:nick});render()});
-  c.on('data',d=>{if(d&&d.t==='state'&&d.S){
+  c.on('open',()=>{clearTimeout(giveUp);connecting=false;net='ok';c.send({t:'hello',pid:myPid,name:nick,rejoin:rejoining});rejoining=false;render()});
+  c.on('data',d=>{if(d&&d.t==='removed'){removed=true;joined=false;S=null;try{peer.destroy()}catch(e){}peer=null;hostConn=null;connecting=false;net='idle';render();return}
+    if(d&&d.t==='state'&&d.S){
     const mine=S&&S.players[myPid];S=d.S;clockOff=d.now-Date.now();
     // keep answers this phone already sent until the admin confirms them
     if(mine&&S.players[myPid])for(const[k,v]of Object.entries(mine.answers||{}))if(!S.players[myPid].answers[k]&&sentFor[k])S.players[myPid].answers[k]=v;
@@ -189,6 +207,7 @@ function connectHost(){
   c.on('close',()=>{clearTimeout(giveUp);connecting=false;if(hostConn===c){net='lost';render();setTimeout(connectHost,2500)}});
   c.on('error',()=>{});
 }
+setInterval(()=>{if(!isAdmin()&&hostConn&&hostConn.open){try{hostConn.send({t:'ping'})}catch(e){}}},4000);
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible')return;
   if(isAdmin()){keepAwake();if(peer&&peer.disconnected&&!peer.destroyed){try{peer.reconnect()}catch(e){}}}
@@ -208,6 +227,7 @@ function render(){
     if(c.status==='playing')return renderAdminLive(main,c);
     return swap(main,c.status==='setup'?viewAdminSetup(c):c.status==='reveal'?viewReveal(c):viewFinal(c));
   }
+  if(removed)return swap(main,viewRemoved());
   if(!joined)return swap(main,viewWelcome());
   if(!S)return swap(main,viewConnecting());
   const c=ctx();
@@ -258,6 +278,12 @@ function howTo(){
     h('h3',{},'كيف نلعب؟'),
     h('p',{},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة. في كل سؤال تظهر أحداث من فئة واحدة بترتيب عشوائي: اسحبها أو حرّكها بالأسهم حتى يصبح الأقدم في الأعلى والأحدث في الأسفل.`),
     h('p',{class:'muted small'},'عندما ينتهي وقت السؤال يُرسل ترتيبك تلقائيًا وتنتقل اللعبة إلى السؤال التالي. نقطة لكل حدث في مكانه الصحيح، و٣ نقاط إضافية للترتيب الكامل.'));
+}
+function viewRemoved(){
+  return h('div',{class:'stack'},h('section',{class:'panel',style:'text-align:center;align-items:center'},
+    h('h2',{},'خرجت من الغرفة'),
+    h('p',{class:'muted'},'أخرجك المدير من اللعبة. إذا كان ذلك بالخطأ، ادخل مرة أخرى.'),
+    h('button',{class:'btn primary block',onclick:()=>{removed=false;rejoining=true;playerJoin()}},'ادخل مرة أخرى')));
 }
 function viewConnecting(){
   return h('div',{class:'stack'},h('section',{class:'panel',style:'text-align:center;align-items:center'},
@@ -359,6 +385,35 @@ function linkPanel(){
         h('button',{class:'btn',onclick:()=>{navigator.clipboard.writeText(link).then(()=>toast('نُسخ الرابط ✓'),()=>{const r=document.createRange();r.selectNodeContents($('#roomlink'));getSelection().removeAllRanges();getSelection().addRange(r);toast('الرابط محدد، انسخه')})}},'انسخ'),
         h('a',{class:'btn',href:wa,target:'_blank',rel:'noopener'},'واتساب')))));
 }
+function secsPicker(val,onset){
+  const clamp=v=>Math.max(1,Math.min(20,Math.round(+v||0)));
+  const apply=v=>{const n=clamp(v);if(n!==val)onset(n);else render()};
+  return h('div',{class:'field'},h('label',{for:'secs'},'وقت كل سؤال (من ١ إلى ٢٠ ثانية)'),
+    h('div',{class:'secs'},
+      h('button',{class:'mv',type:'button','aria-label':'أقل',onclick:()=>apply(val-1),disabled:val<=1},'−'),
+      h('input',{type:'number',id:'secs',min:'1',max:'20',step:'1',inputmode:'numeric',value:String(val),'aria-label':'اكتب عدد الثواني',onchange:e=>apply(e.target.value)}),
+      h('button',{class:'mv',type:'button','aria-label':'أكثر',onclick:()=>apply(val+1),disabled:val>=20},'+'),
+      h('select',{id:'secsSel','aria-label':'اختر عدد الثواني',onchange:e=>apply(e.target.value)},
+        Array.from({length:20},(_,i)=>i+1).map(n=>h('option',{value:n,selected:n===val},`${num(n)} ثانية`)))));
+}
+function managePlayers(c){
+  if(!c.players.length)return null;
+  const offline=c.players.filter(p=>p.online===false);
+  return h('div',{class:'stack'},
+    h('span',{class:'lbl'},'إدارة اللاعبين'),
+    h('ul',{class:'plist'},c.players.map(p=>h('li',{},
+      h('span',{class:'dot'+(p.online===false?' off':'')}),
+      h('span',{class:'pn'},p.name||'لاعب',h('span',{class:'muted small'},p.online===false?' · غير متصل':' · متصل'),(p.total||0)>0?h('span',{class:'muted small'},` · ${num(p.total)} نقطة`):null),
+      h('button',{class:'link danger-link',onclick:()=>removePlayer(p.id)},'أخرج')))),
+    offline.length?h('button',{class:'btn block',onclick:()=>{offline.forEach(p=>removePlayer(p.id,true));commit();toast('أُخرج غير المتصلين')}},`أخرج كل غير المتصلين (${num(offline.length)})`):null);
+}
+function removePlayer(id,silent){
+  const p=S.players[id];if(!p)return;
+  delete S.players[id];if(S.teams)delete S.teams[id];
+  S.kicked=[...new Set([...(S.kicked||[]),id])];
+  const c=conns[id];if(c){try{c.send({t:'removed'})}catch(e){}setTimeout(()=>{try{c.close()}catch(e){}},300);delete conns[id]}
+  if(!silent){commit();toast(`أُخرج ${p.name||'اللاعب'} من الغرفة`)}
+}
 function viewAdminSetup(c){
   const st=S.settings;const set=(k,v)=>{st[k]=v;commit()};
   const avail=availableCats();
@@ -376,13 +431,14 @@ function viewAdminSetup(c){
       seg('طريقة اللعب',st.mode,['solo','teams'],o=>set('mode',o),o=>o==='teams'?'فريقان':'كل لاعب وحده'),
       c.teams?h('div',{class:'stack'},h('p',{class:'muted small'},'اضغط على اسم اللاعب لنقله إلى الفريق الآخر.'),teamsBlock(c,true),
         h('button',{class:'link',onclick:shuffleTeams},'وزّع الفرق عشوائيًا')):peopleList(c.players),
-      c.players.some(p=>p.online===false)?h('p',{class:'muted small'},'الأسماء المشطوبة غير متصلة الآن.'):null),
+      c.players.some(p=>p.online===false)?h('p',{class:'muted small'},'الأسماء المشطوبة غير متصلة الآن.'):null,
+      managePlayers(c)),
     h('section',{class:'panel'},
       h('h3',{},'الأسئلة'),
       h('div',{class:'field'},h('span',{class:'lbl'},'الفئات (تتناوب سؤالًا بعد سؤال)'),catBox),
       seg('عدد الجولات',st.totalRounds,[1,2,3,5],o=>set('totalRounds',o),num,o=>o<c.r+1),
       seg('عدد الأحداث في كل سؤال',st.perQ,[3,4,5],o=>set('perQ',o)),
-      seg('وقت كل سؤال (ثانية)',st.secs,[6,10,15],o=>set('secs',o)),
+      secsPicker(st.secs,v=>set('secs',v)),
       h('p',{class:'muted small'},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة، ومدتها تقريبًا ${num(Math.ceil(QUESTIONS_PER_ROUND*(st.secs+READY_MS/1000)))} ثانية.`),
       h('div',{class:'row'},h('button',{class:'link',onclick:()=>{view='family';render()}},`أحداث العائلة (${num(family.length)})`),
         h('button',{class:'link',onclick:()=>{view='history';render()}},`سجل الألعاب السابقة (${num((S.history||[]).length)})`),
