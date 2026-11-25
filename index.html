@@ -149,7 +149,7 @@ a.btn{text-decoration:none;color:inherit;display:inline-flex;align-items:center;
 .timer.wait .sec{color:var(--muted)}
 .qcard{background:var(--surface);border:1px solid var(--line);border-inline-start:4px solid var(--cc);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
 ol.mini{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
-ol.mini li{display:grid;grid-template-columns:3.2em 1fr auto;gap:8px;align-items:baseline;font-size:.92rem}
+ol.mini li{display:grid;grid-template-columns:minmax(3.2em,auto) 1fr auto;gap:8px;align-items:baseline;font-size:.92rem}
 ol.mini .y{font-family:var(--display);color:var(--cc)}
 ol.mini .tt{min-width:0}
 .spinner{width:44px;height:44px;border-radius:50%;border:5px solid var(--line);border-top-color:var(--accent);animation:spin 1s linear infinite}
@@ -204,7 +204,7 @@ tr.meRow td{background:color-mix(in srgb,var(--accent) 10%,transparent)}
 <script src="lib/peerjs.min.js"></script>
 <script src="lib/Sortable.min.js"></script>
 <script src="lib/qrcode.js"></script>
-<script src="events.js?v=7"></script>
-<script src="app.js?v=7"></script>
+<script src="events.js?v=8"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

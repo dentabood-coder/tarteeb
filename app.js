@@ -42,9 +42,16 @@ function poolFor(cat){
   return EVENTS[cat].map(([t,y])=>({t,y,m:0,c:cat}));
 }
 function pickQuestion(cat,n,used){
-  const all=poolFor(cat);let pool=all.filter(e=>!used.has(e.t));if(pool.length<n)pool=all;
+  if(cat==='islam'&&Math.random()<GHAZAWAT_SHARE){
+    const q=pickFrom(GHAZAWAT.map(([t,y,,,m])=>({t,y,m:m||0,c:'islam'})),0,n,used);
+    if(q)return q;
+  }
+  return pickFrom(poolFor(cat),GAP[cat],n,used);
+}
+function pickFrom(all,gap,n,used){
+  let pool=all.filter(e=>!used.has(e.t));if(pool.length<n)pool=all;
   let best=[];
-  for(const g of [GAP[cat],Math.floor(GAP[cat]/2),0]){
+  for(const g of [gap,Math.floor(gap/2),0]){
     for(let t=0;t<40;t++){
       const p=[];
       for(const e of shuffle(pool)){if(p.some(q=>clash(q,e)||Math.abs(q.y-e.y)<g))continue;p.push(e);if(p.length===n)return shuffle(p)}
@@ -482,7 +489,7 @@ function viewReveal(c){
     return h('section',{class:'qcard',style:cc(Q.cat)},
       h('div',{class:'status'},h('span',{class:'tag'},`${num(qi+1)} · ${CATS[Q.cat].name}`),
         me?(res?h('span',{class:res.perfect?'ok small':'muted small'},res.perfect?`✓ كامل +${num(res.pts)}`:`${num(res.hits)}/${num(Q.evs.length)} +${num(res.pts)}`):h('span',{class:'no small'},'لم يُرسل')):null),
-      h('ol',{class:'mini'},corr.map((ix,pos)=>h('li',{},h('span',{class:'y'},num(Q.evs[ix].y)),h('span',{class:'tt',text:Q.evs[ix].t}),
+      h('ol',{class:'mini'},corr.map((ix,pos)=>h('li',{},h('span',{class:'y'},(Q.evs[ix].m?MONTHS[Q.evs[ix].m]+' ':'')+num(Q.evs[ix].y)),h('span',{class:'tt',text:Q.evs[ix].t}),
         ans?h('span',{class:ans.indexOf(ix)===pos?'ok':'no'},ans.indexOf(ix)===pos?'✓':'✗'):h('span',{})))));
   });
   return h('div',{class:'stack'},
@@ -552,9 +559,10 @@ function viewHistory(){
     })):h('p',{class:'muted'},'لا توجد ألعاب سابقة بعد. عندما تنتهي لعبة أو يبدأ المدير لعبة جديدة تُحفظ النتائج هنا.'));
 }
 function viewRefs(){
-  const secs=Object.entries(EVENTS).map(([cat,list])=>h('section',{class:'panel',style:cc(cat)},
-    h('h2',{style:'color:var(--cc)'},`${CATS[cat].name} (${num(list.length)})`),
-    h('ol',{class:'mini refs'},[...list].sort((a,b)=>a[1]-b[1]).map(([t,y,q,note])=>h('li',{},
+  const lists=[...Object.entries(EVENTS).map(([cat,list])=>[cat,CATS[cat].name,list]),['islam','غزوات النبي ﷺ (ضمن التاريخ الإسلامي)',GHAZAWAT]];
+  const secs=lists.map(([cat,title,list])=>h('section',{class:'panel',style:cc(cat)},
+    h('h2',{style:'color:var(--cc)'},`${title} (${num(list.length)})`),
+    h('ol',{class:'mini refs'},[...list].sort((a,b)=>a[1]-b[1]||(a[4]||0)-(b[4]||0)).map(([t,y,q,note])=>h('li',{},
       h('span',{class:'y'},num(y)),h('span',{class:'tt'},t,note?h('span',{class:'muted small'},` (${note})`):null),
       h('a',{class:'link small',href:'https://ar.wikipedia.org/w/index.php?search='+encodeURIComponent(q),target:'_blank',rel:'noopener'},'المصدر'))))));
   return h('div',{class:'stack'},h('button',{class:'link back',onclick:()=>{view='main';render()}},'→ رجوع'),

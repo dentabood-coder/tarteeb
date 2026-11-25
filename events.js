@@ -88,3 +88,16 @@ tv:[
 ['العاصوف (الجزء الأول)',2018,'العاصوف','السعودية'],
 ['أم هارون',2020,'أم هارون (مسلسل)','الكويت']
 ]};
+
+// The Prophet's battles ﷺ: close together in time, so they get their own questions
+// (about 4 in 10 Islamic-history questions, see GHAZAWAT_SHARE). Month is set where two fall in the same year.
+// [title, year, search term, note, month]
+const GHAZAWAT=[
+['غزوة بدر الكبرى',624,'غزوة بدر','رمضان ٢ هـ'],
+['غزوة أحد',625,'غزوة أحد','شوال ٣ هـ'],
+['غزوة الخندق (الأحزاب)',627,'غزوة الخندق','شوال ٥ هـ'],
+['غزوة خيبر',628,'غزوة خيبر','محرم ٧ هـ'],
+['فتح مكة',630,'فتح مكة','رمضان ٨ هـ',1],
+['غزوة تبوك',630,'غزوة تبوك','رجب ٩ هـ',10]
+];
+const GHAZAWAT_SHARE=0.4;
