@@ -202,6 +202,7 @@ function render(){
   if(view==='history'&&S&&S.status==='playing')view='main';   // never miss a round that just started
   if(view==='history')return swap(main,viewHistory());
   if(isAdmin()){
+    if(view==='refs')return swap(main,viewRefs());
     if(view==='family')return swap(main,viewFamily());
     const c=ctx();
     if(c.status==='playing')return renderAdminLive(main,c);
@@ -385,7 +386,7 @@ function viewAdminSetup(c){
       h('p',{class:'muted small'},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة، ومدتها تقريبًا ${num(Math.ceil(QUESTIONS_PER_ROUND*(st.secs+READY_MS/1000)))} ثانية.`),
       h('div',{class:'row'},h('button',{class:'link',onclick:()=>{view='family';render()}},`أحداث العائلة (${num(family.length)})`),
         h('button',{class:'link',onclick:()=>{view='history';render()}},`سجل الألعاب السابقة (${num((S.history||[]).length)})`),
-        h('a',{class:'link',href:'references.html',target:'_blank',rel:'noopener'},'مصادر الأسئلة'))),
+        h('button',{class:'link',onclick:()=>{view='refs';render()}},'مصادر الأسئلة'))),
     h('button',{class:'btn primary block big-start',disabled:!online.length,onclick:()=>startRound(c)},online.length?`ابدأ الجولة ${num(c.r+1)} للجميع`:'بانتظار دخول اللاعبين…'));
   if(c.r>0)out.append(h('section',{class:'panel'},h('h3',{},'النتائج حتى الآن'),board(c,c.r-1)));
   if(c.players.some(p=>(p.total||0)>0))out.append(h('button',{class:'btn block',onclick:resetGame},'ابدأ لعبة جديدة (تصفير النتائج وحفظها في السجل)'));
@@ -471,21 +472,41 @@ function viewFinal(c){
     h('button',{class:'link',onclick:()=>{view='history';render()}},'سجل الألعاب السابقة'));
 }
 
+let confirmClear=false;
+function deleteHistory(id){S.history=(S.history||[]).filter(g=>g.id!==id);store('history',JSON.stringify(S.history));commit();toast('حُذفت النتيجة')}
+function clearHistory(){S.history=[];confirmClear=false;store('history','[]');commit();toast('حُذف السجل كله')}
 function viewHistory(){
   const hist=(S&&S.history)||[];
   const when=t=>{const d=new Date(t);return d.toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+' · '+d.toLocaleTimeString('ar-EG',{hour:'numeric',minute:'2-digit'})};
   return h('div',{class:'stack'},
     h('button',{class:'link back',onclick:()=>{view='main';render()}},'→ رجوع'),
     h('h2',{},'سجل الألعاب السابقة'),
+    isAdmin()&&hist.length?(confirmClear?h('section',{class:'panel confirm'},h('p',{},'هل تريد حذف كل الألعاب السابقة؟ لا يمكن التراجع.'),
+      h('div',{class:'row'},h('button',{class:'btn danger',onclick:clearHistory},'نعم، احذف الكل'),h('button',{class:'btn',onclick:()=>{confirmClear=false;render()}},'إلغاء'))):
+      h('button',{class:'btn block',onclick:()=>{confirmClear=true;render()}},'احذف السجل كله')):null,
     hist.length?h('div',{class:'hist'},hist.map(g=>{
       const tw=g.teams&&g.teamTotals?(g.teamTotals.A===g.teamTotals.B?'تعادل':TEAMS[g.teamTotals.A>g.teamTotals.B?'A':'B'].name):null;
       return h('section',{class:'hcard'},
-        h('div',{class:'when'},when(g.at)+(g.finished?'':' · لم تكتمل')),
+        h('div',{class:'status'},h('span',{class:'when'},when(g.at)+(g.finished?'':' · لم تكتمل')),
+          isAdmin()?h('button',{class:'link danger-link','aria-label':'احذف هذه النتيجة',onclick:()=>deleteHistory(g.id)},'احذف'):null),
         h('div',{class:'win'},'🏆 '+(g.teams?tw:(g.players[0]?g.players[0].n:'—'))),
         g.teams&&g.teamTotals?h('p',{class:'small'},`${TEAMS.A.name}: ${num(g.teamTotals.A)} · ${TEAMS.B.name}: ${num(g.teamTotals.B)}`):null,
         h('table',{class:'sc'},h('tbody',{},g.players.map((p,i)=>h('tr',{},
           h('td',{class:'rk'},num(i+1)),h('td',{},p.n,p.team?h('span',{class:'muted small'},' · '+TEAMS[p.team].name):null),h('td',{class:'num'},num(p.t)+' نقطة'))))));
     })):h('p',{class:'muted'},'لا توجد ألعاب سابقة بعد. عندما تنتهي لعبة أو يبدأ المدير لعبة جديدة تُحفظ النتائج هنا.'));
+}
+function viewRefs(){
+  const secs=Object.entries(EVENTS).map(([cat,list])=>h('section',{class:'panel',style:cc(cat)},
+    h('h2',{style:'color:var(--cc)'},`${CATS[cat].name} (${num(list.length)})`),
+    h('ol',{class:'mini refs'},[...list].sort((a,b)=>a[1]-b[1]).map(([t,y,q,note])=>h('li',{},
+      h('span',{class:'y'},num(y)),h('span',{class:'tt'},t,note?h('span',{class:'muted small'},` (${note})`):null),
+      h('a',{class:'link small',href:'https://ar.wikipedia.org/w/index.php?search='+encodeURIComponent(q),target:'_blank',rel:'noopener'},'المصدر'))))));
+  return h('div',{class:'stack'},h('button',{class:'link back',onclick:()=>{view='main';render()}},'→ رجوع'),
+    h('h2',{},'مصادر الأسئلة'),
+    h('section',{class:'panel'},
+      h('p',{},'اخترنا أحداثًا كبيرة ومعروفة، واستخدمنا السنة الميلادية الأكثر شيوعًا. كل حدث مرتبط ببحث في ويكيبيديا العربية للتحقق منه.'),
+      h('p',{class:'muted small'},'مراجع عامة: موسوعة بريتانيكا (britannica.com)، الموقع الرسمي للفيفا (fifa.com) لأحداث كأس العالم، ومنظمة الصحة العالمية (who.int) لأحداث الأوبئة. هذه الصفحة تظهر للمدير فقط.')),
+    ...secs);
 }
 function viewFamily(){
   const sorted=[...family].sort((a,b)=>cmp({y:+a.year,m:+a.month||0},{y:+b.year,m:+b.month||0}));

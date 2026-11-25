@@ -1,4 +1,4 @@
-// Game content: every event, its year (CE) and an Arabic Wikipedia search term used on the references page.
+// Game content: every event, its year (CE) and an Arabic Wikipedia search term used on the admin references screen.
 // Years are the commonly cited ones; "approx" marks events whose exact year is debated.
 const CATS={
   arab:{name:'تاريخ العرب',hint:'أبرز أحداث العرب والخليج'},
