@@ -152,11 +152,30 @@ ol.mini{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;ga
 ol.mini li{display:grid;grid-template-columns:3.2em 1fr auto;gap:8px;align-items:baseline;font-size:.92rem}
 ol.mini .y{font-family:var(--display);color:var(--cc)}
 ol.mini .tt{min-width:0}
+.spinner{width:44px;height:44px;border-radius:50%;border:5px solid var(--line);border-top-color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spinner{animation-duration:3s}}
+.getready{text-align:center;align-items:center;border:2px solid var(--accent)}
+.gr{font-size:2.6rem;color:var(--accent)}
+.myteam{font-size:1.15rem;border:2px solid var(--tc);color:var(--tc);border-radius:999px;padding:4px 16px}
+.mine{display:flex;flex-wrap:wrap;gap:8px 18px;justify-content:center;background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:1.05rem}
+.mine strong{font-family:var(--display);color:var(--accent)}
+.qdots{display:flex;gap:6px;flex-wrap:wrap}
+.qd{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--cc);color:var(--cc);font-weight:700;opacity:.45}
+.qd.past{opacity:.9;background:color-mix(in srgb,var(--cc) 15%,transparent)}
+.qd.now{opacity:1;background:var(--cc);color:var(--surface)}
+.roomgrid{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center}
+.roomgrid .qr{width:150px}
+@media (max-width:420px){.roomgrid{grid-template-columns:1fr}.roomgrid .qr{width:180px}}
+.winner{text-align:center;align-items:center;border:2px solid var(--gold)}
+.winner h2{font-size:2.2rem;color:var(--gold)}
+tr.meRow td{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.big-start{font-size:1.2rem;min-height:60px}
 #net{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--gold);color:#1a1300;font-weight:700;text-align:center;padding:8px 16px;border-radius:0 0 12px 12px}
 </style>
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
 </head>
-<body>
+<body data-page="player">
 <div id="net" hidden></div>
 <div id="app" dir="rtl" lang="ar">
   <header class="hero">
@@ -170,6 +189,7 @@ ol.mini .tt{min-width:0}
 <script src="lib/peerjs.min.js"></script>
 <script src="lib/Sortable.min.js"></script>
 <script src="lib/qrcode.js"></script>
+<script src="events.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

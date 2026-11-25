@@ -1,46 +1,10 @@
 document.documentElement.dir='rtl';document.documentElement.lang='ar';
 
-const READY_MS=2000;
-const QUESTIONS_PER_ROUND=7;            // every round has 7 questions                 // short "get ready" screen before each question
-const PREFIX='tarteeb-fam-v1-';
+const PAGE=document.body.dataset.page==='admin'?'admin':'player';
+const READY_MS=2000;                    // short "get ready" screen before each question
+const QUESTIONS_PER_ROUND=7;            // every round has 7 questions
+const ROOM_ID='tarteeb-family-room-v2'; // fixed room, so the player link never changes
 const ICE={iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:'stun:global.stun.twilio.com:3478'}]};
-const CATS={
-  arab:{name:'تاريخ العرب',hint:'أبرز أحداث العرب والخليج'},
-  cup:{name:'كأس العالم',hint:'أشهر لحظات كأس العالم'},
-  plague:{name:'الأوبئة والأمراض',hint:'من الموت الأسود إلى كورونا'},
-  islam:{name:'التاريخ الإسلامي',hint:'من الهجرة إلى فتح القسطنطينية'},
-  family:{name:'أحداث العائلة',hint:'أحداث يضيفها المدير'}
-};
-// minimum years between events in one question, to keep it easy
-const GAP={arab:20,islam:20,cup:8,plague:15,family:0};
-const EVENTS={
-arab:[
-['عام الفيل وهجوم أبرهة على مكة',570],['سقوط غرناطة آخر ممالك الأندلس',1492],['تأسيس الدولة السعودية الأولى في الدرعية',1727],
-['حملة نابليون على مصر',1798],['افتتاح قناة السويس',1869],['الثورة العربية الكبرى',1916],
-['توحيد المملكة العربية السعودية',1932],['اكتشاف النفط في السعودية',1938],['تأسيس جامعة الدول العربية',1945],
-['تأميم قناة السويس',1956],['استقلال الكويت',1961],['قيام دولة الإمارات العربية المتحدة',1971],
-['حرب أكتوبر ١٩٧٣',1973],['تأسيس مجلس التعاون الخليجي',1981],['تحرير الكويت',1991],['افتتاح برج خليفة في دبي',2010],
-['إطلاق رؤية السعودية ٢٠٣٠',2016]
-],
-islam:[
-['بدء نزول الوحي على النبي ﷺ',610],['الهجرة النبوية إلى المدينة',622],['فتح مكة',630],['معركة اليرموك',636],
-['قيام الدولة الأموية',661],['فتح الأندلس على يد طارق بن زياد',711],['قيام الدولة العباسية',750],
-['تأسيس مدينة بغداد',762],['بناء الجامع الأزهر',972],['معركة حطين وتحرير صلاح الدين للقدس',1187],
-['سقوط بغداد على يد المغول',1258],['فتح القسطنطينية على يد محمد الفاتح',1453],['سقوط غرناطة',1492],['إلغاء الخلافة العثمانية',1924]
-],
-cup:[
-['أول كأس عالم في التاريخ (الأوروغواي)',1930],['مصر أول منتخب عربي يشارك في كأس العالم',1934],['بيليه يقود البرازيل لأول لقب',1958],
-['إنجلترا تفوز بكأس العالم على أرضها',1966],['البرازيل تفوز باللقب الثالث بقيادة بيليه',1970],['مارادونا يقود الأرجنتين للقب في المكسيك',1986],
-['السعودية تشارك لأول مرة وهدف العويران الشهير',1994],['فرنسا تفوز باللقب بقيادة زيدان',1998],['أول كأس عالم في آسيا (كوريا واليابان)',2002],
-['إيطاليا تفوز باللقب في ألمانيا',2006],['أول كأس عالم في أفريقيا وإسبانيا بطلة',2010],['ألمانيا تهزم البرازيل ٧-١ وتفوز باللقب',2014],
-['فرنسا تفوز باللقب في روسيا',2018],['كأس العالم في قطر وميسي يفوز باللقب',2022],['أول كأس عالم بـ٤٨ منتخبًا في أمريكا وكندا والمكسيك',2026]
-],
-plague:[
-['طاعون جستنيان',541],['الموت الأسود يجتاح العالم',1347],['أول لقاح ضد الجدري',1796],['أول جائحة كوليرا عالمية',1817],
-['الإنفلونزا الإسبانية',1918],['اكتشاف البنسلين',1928],['لقاح شلل الأطفال',1955],['إعلان القضاء على الجدري',1980],
-['اكتشاف مرض الإيدز',1981],['تفشي سارس',2003],['إنفلونزا الخنازير',2009],['ظهور كورونا ميرس في السعودية',2012],
-['تفشي الإيبولا في أفريقيا',2014],['جائحة كوفيد-١٩',2020]
-]};
 const MONTHS=['','يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 const TEAMS={A:{name:'فريق الصقور',v:'var(--team-a)'},B:{name:'فريق النخيل',v:'var(--team-b)'}};
 
@@ -53,27 +17,24 @@ const cc=c=>`--cc:var(--c-${c})`;
 function shuffle(a){a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
 function store(k,v){try{localStorage.setItem('tz_'+k,v)}catch(e){}}
 function load(k){try{return localStorage.getItem('tz_'+k)}catch(e){return null}}
-function unstore(k){try{localStorage.removeItem('tz_'+k)}catch(e){}}
 let toastT;function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,3200)}
 const cmp=(a,b)=>a.y-b.y||(a.m||0)-(b.m||0);
 const clash=(a,b)=>a.y===b.y&&(!a.m||!b.m||a.m===b.m);
 const correctOrder=evs=>evs.map((e,i)=>i).sort((i,j)=>cmp(evs[i],evs[j]));
 function scoreOf(evs,order){const c=correctOrder(evs);let hits=0;order.forEach((ix,i)=>{if(ix===c[i])hits++});const perfect=hits===evs.length;return{hits,perfect,pts:hits+(perfect?3:0)}}
 const rid=n=>Array.from(crypto.getRandomValues(new Uint8Array(n)),b=>'23456789abcdefghjkmnpqrstuvwxyz'[b%31]).join('');
-const genCode=()=>Array.from(crypto.getRandomValues(new Uint8Array(5)),b=>'23456789'[b%8]).join('');
 const qkey=(r,q)=>r+'_'+q;
+const playerUrl=()=>location.origin+location.pathname.replace(/[^/]*$/,'');
 
 // ---------- state ----------
-let role=null;            // 'host' | 'client' | 'local' (practice alone) | null
-let S=null;               // shared game state (host owns it, clients receive copies)
-let myPid=null,roomCode=null,peer=null,conns={},hostConn=null,clockOff=0,net='idle',connecting=false;
+let S=null;               // shared game state (admin page owns it, players receive copies)
+let myPid=null,peer=null,conns={},hostConn=null,clockOff=0,net='idle',connecting=false,joined=false;
 let family=[];try{family=JSON.parse(load('family')||'[]')}catch(e){family=[]}
 let nick=load('nick')||'';
-let mode='home';
+let view='main';          // admin: 'main' | 'family'
 let drafts={},sortable=null,builtKey=null,answering=null,sentFor={},revealFor={};
-const isAdmin=()=>role==='host'||role==='local';
+const isAdmin=()=>PAGE==='admin';
 const hostNow=()=>Date.now()+clockOff;
-const urlRoom=new URLSearchParams(location.search).get('room');
 
 function poolFor(cat){
   if(cat==='family')return family.map(f=>({t:f.title,y:+f.year,m:+f.month||0,c:'family',n:f.note||''}));
@@ -104,14 +65,14 @@ function availableCats(){return Object.keys(CATS).filter(k=>k!=='family'||family
 function playerList(){if(!S)return[];return Object.entries(S.players).map(([id,p])=>({id,...p})).sort((a,b)=>(a.joinedAt||0)-(b.joinedAt||0))}
 function teamOf(p,list){const t=(S&&S.teams||{})[p.id];if(t)return t;const i=list.findIndex(x=>x.id===p.id);return i%2?'B':'A'}
 const roundPts=(p,r)=>Object.entries(p.points||{}).reduce((s,[k,v])=>k.startsWith(r+'_')?s+v:s,0);
+const ranked=list=>[...list].sort((a,b)=>(b.total||0)-(a.total||0));
 
-// ---------- context ----------
 function ctx(){
   if(!S)return null;
   const players=playerList();
-  return{key:S.gameId,R:S.rounds[S.round],r:S.round,total:S.settings.totalRounds,status:S.status,me:players.find(p=>p.id===myPid)||null,players,teams:S.settings.mode==='teams'&&role!=='local',local:role==='local'};
+  return{key:S.gameId,R:S.rounds[S.round],r:S.round,total:S.settings.totalRounds,status:S.status,me:players.find(p=>p.id===myPid)||null,players,teams:S.settings.mode==='teams'};
 }
-// where are we in the round, from the host's clock
+// where are we in the round, from the admin's clock
 function phase(R){
   const slot=R.ready+R.dur;const el=hostNow()-R.startedAt;const n=R.questions.length;
   if(el<0)return{q:0,stage:'ready',left:R.ready-el,span:R.ready};
@@ -120,16 +81,15 @@ function phase(R){
   return w<R.ready?{q,stage:'ready',left:R.ready-w,span:R.ready}:{q,stage:'answer',left:slot-w,span:R.dur};
 }
 
-// ---------- game state (host / local) ----------
-function defaultSettings(){return{mode:'solo',totalRounds:3,perRound:7,perQ:3,secs:6,cats:availableCats()}}
-function newGameState(keepPlayers){
+// ================= ADMIN: owns the game =================
+function defaultSettings(){return{mode:'solo',totalRounds:3,perQ:3,secs:6,cats:availableCats()}}
+function newGameState(keep){
   const players={};
-  if(keepPlayers&&S)for(const[id,p]of Object.entries(S.players))players[id]={name:p.name,joinedAt:p.joinedAt,online:p.online,answers:{},points:{},total:0};
-  if(!players[myPid])players[myPid]={name:nick||'أنا',joinedAt:Date.now(),online:true,answers:{},points:{},total:0};
-  return{gameId:rid(8),status:'setup',settings:keepPlayers&&S?S.settings:defaultSettings(),round:0,rounds:[],used:[],teams:keepPlayers&&S?S.teams:{},players};
+  if(keep&&S)for(const[id,p]of Object.entries(S.players))players[id]={name:p.name,joinedAt:p.joinedAt,online:p.online,answers:{},points:{},total:0};
+  return{gameId:rid(8),status:'setup',settings:keep&&S?S.settings:defaultSettings(),round:0,rounds:[],used:[],teams:keep&&S?S.teams:{},players};
 }
 function commit(){
-  if(role==='host'){
+  if(isAdmin()){
     store('hostState',JSON.stringify(S));
     const now=Date.now();
     for(const[pid,c]of Object.entries(conns)){if(c.open){try{c.send({t:'state',S,now,you:pid})}catch(e){}}}
@@ -145,29 +105,18 @@ function applyAnswer(pid,r,q,order){
   if(!Array.isArray(order)||order.length!==evs.length||new Set(order).size!==evs.length||order.some(x=>!(x>=0&&x<evs.length)))return;
   p.answers[k]=order;p.points[k]=scoreOf(evs,order).pts;p.total=Object.values(p.points).reduce((a,b)=>a+b,0);
 }
-
-// ---------- networking: host ----------
-function hostOpen(resume){
-  if(!nick){needNick();return}
-  if(peer){try{peer.destroy()}catch(e){}}peer=null;
-  roomCode=load('hostRoom')||genCode();store('hostRoom',roomCode);
-  role='host';myPid='host';clockOff=0;
-  let saved=null;if(resume){try{saved=JSON.parse(load('hostState')||'null')}catch(e){}}
-  S=saved&&saved.settings?saved:newGameState(false);
-  S.players.host.name=nick;S.players.host.online=true;
-  for(const[id,p]of Object.entries(S.players))if(id!=='host')p.online=false;
-  mode='group';store('hostState',JSON.stringify(S));
+function adminBoot(){
+  let saved=null;try{saved=JSON.parse(load('hostState')||'null')}catch(e){}
+  S=saved&&saved.settings&&saved.status!=='done'?saved:newGameState(false);
+  if(S.status==='playing'){S.status='setup'}            // a round cut off by a reload starts over
+  for(const p of Object.values(S.players))p.online=false;
+  store('hostState',JSON.stringify(S));
   startPeerHost();keepAwake();render();
-}
-function openLocal(){
-  if(peer){try{peer.destroy()}catch(e){}}peer=null;
-  role='local';myPid='me';clockOff=0;roomCode=null;net='ok';S=null;
-  S=newGameState(false);S.settings.totalRounds=1;mode='group';render();
 }
 function startPeerHost(){
   if(peer){try{peer.destroy()}catch(e){}}
-  net='connecting';
-  peer=new Peer(PREFIX+roomCode,{config:ICE,debug:0});
+  net='connecting';render();
+  peer=new Peer(ROOM_ID,{config:ICE,debug:0});
   peer.on('open',()=>{net='ok';render()});
   peer.on('connection',c=>{
     c.on('data',d=>onHostMsg(c,d));
@@ -176,13 +125,13 @@ function startPeerHost(){
   });
   peer.on('disconnected',()=>{net='connecting';render();setTimeout(()=>{try{if(peer&&!peer.destroyed)peer.reconnect()}catch(e){}},2000)});
   peer.on('error',e=>{
-    if(role!=='host')return;
-    if(e.type==='unavailable-id'||['network','server-error','socket-error','socket-closed'].includes(e.type)){net='connecting';render();setTimeout(()=>{if(role==='host')startPeerHost()},4000)}
+    if(e.type==='unavailable-id'){net='taken';render();setTimeout(startPeerHost,5000)}   // open on another device, or still held from a reload
+    else if(['network','server-error','socket-error','socket-closed'].includes(e.type)){net='connecting';render();setTimeout(startPeerHost,4000)}
   });
 }
 function onHostMsg(c,d){
   if(!d||typeof d!=='object')return;
-  if(d.t==='hello'&&typeof d.pid==='string'&&d.pid.length<40&&d.pid!=='host'){
+  if(d.t==='hello'&&typeof d.pid==='string'&&d.pid.length<40){
     const name=String(d.name||'لاعب').slice(0,24);
     c.pid=d.pid;if(conns[d.pid]&&conns[d.pid]!==c){try{conns[d.pid].close()}catch(e){}}conns[d.pid]=c;
     const p=S.players[d.pid];
@@ -193,62 +142,65 @@ function onHostMsg(c,d){
 }
 let wakeLock=null;
 async function keepAwake(){try{if('wakeLock' in navigator&&document.visibilityState==='visible')wakeLock=await navigator.wakeLock.request('screen')}catch(e){}}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){if(role==='host'){keepAwake();if(peer&&peer.disconnected&&!peer.destroyed){try{peer.reconnect()}catch(e){}}}if(role==='client'&&(!hostConn||!hostConn.open))connectHost()}});
 
-// ---------- networking: client ----------
-function clientJoin(code){
+// ================= PLAYER: joins the fixed room =================
+function playerJoin(){
   if(!nick){needNick();return}
-  roomCode=code;role='client';mode='group';S=null;
-  myPid=load('pid_'+code)||rid(10);store('pid_'+code,myPid);
+  joined=true;
+  myPid=load('pid')||rid(10);store('pid',myPid);
   net='connecting';render();
   if(peer){try{peer.destroy()}catch(e){}}
   peer=new Peer(undefined,{config:ICE,debug:0});
   peer.on('open',()=>connectHost());
   peer.on('error',e=>{
-    if(role!=='client')return;
     if(e.type==='peer-unavailable'){net='nohost';connecting=false;render();setTimeout(connectHost,3000)}
-    else if(['network','server-error','socket-error','socket-closed'].includes(e.type)){net='lost';connecting=false;render();setTimeout(()=>{if(role==='client')clientJoin(code)},4000)}
+    else if(['network','server-error','socket-error','socket-closed'].includes(e.type)){net='lost';connecting=false;render();setTimeout(playerJoin,4000)}
   });
   peer.on('disconnected',()=>{setTimeout(()=>{try{if(peer&&!peer.destroyed)peer.reconnect()}catch(e){}},2000)});
 }
 function connectHost(){
-  if(role!=='client'||!peer||peer.destroyed||connecting)return;
+  if(!peer||peer.destroyed||connecting)return;
   if(hostConn&&hostConn.open)return;
   connecting=true;
-  const c=peer.connect(PREFIX+roomCode,{reliable:true});hostConn=c;
+  const c=peer.connect(ROOM_ID,{reliable:true});hostConn=c;
   const giveUp=setTimeout(()=>{if(!c.open){connecting=false;try{c.close()}catch(e){};if(net!=='ok'){net='nohost';render()}setTimeout(connectHost,2500)}},9000);
   c.on('open',()=>{clearTimeout(giveUp);connecting=false;net='ok';c.send({t:'hello',pid:myPid,name:nick});render()});
   c.on('data',d=>{if(d&&d.t==='state'&&d.S){
-    // keep answers this phone already sent until the host confirms them
     const mine=S&&S.players[myPid];S=d.S;clockOff=d.now-Date.now();
+    // keep answers this phone already sent until the admin confirms them
     if(mine&&S.players[myPid])for(const[k,v]of Object.entries(mine.answers||{}))if(!S.players[myPid].answers[k]&&sentFor[k])S.players[myPid].answers[k]=v;
     render()}});
   c.on('close',()=>{clearTimeout(giveUp);connecting=false;if(hostConn===c){net='lost';render();setTimeout(connectHost,2500)}});
   c.on('error',()=>{});
 }
-function leave(){role=null;S=null;mode='home';if(peer){try{peer.destroy()}catch(e){}}peer=null;hostConn=null;conns={};connecting=false;net='idle'}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState!=='visible')return;
+  if(isAdmin()){keepAwake();if(peer&&peer.disconnected&&!peer.destroyed){try{peer.reconnect()}catch(e){}}}
+  else if(joined&&(!hostConn||!hostConn.open))connectHost();
+});
 
-// ---------- render ----------
+// ================= RENDER =================
 function render(){
   const main=$('#main');
-  if(mode==='group'){
-    if(role==='client'&&!S){swap(main,viewConnecting());return netBanner()}
-    const c=ctx();
-    if(!c){mode='home';return render()}
-    if(c.status==='playing'){renderPlaying(main,c);return netBanner()}
-    swap(main,c.status==='setup'?viewSetupRound(c):c.status==='reveal'?viewReveal(c):viewFinal(c));
-    return netBanner();
-  }
-  if(mode==='join')swap(main,viewJoin());
-  else if(mode==='family')swap(main,viewFamily());
-  else swap(main,viewHome());
   netBanner();
+  if(isAdmin()){
+    if(view==='family')return swap(main,viewFamily());
+    const c=ctx();
+    if(c.status==='playing')return renderAdminLive(main,c);
+    return swap(main,c.status==='setup'?viewAdminSetup(c):c.status==='reveal'?viewReveal(c):viewFinal(c));
+  }
+  if(!joined)return swap(main,viewWelcome());
+  if(!S)return swap(main,viewConnecting());
+  const c=ctx();
+  if(!c.me)return swap(main,viewConnecting());
+  if(c.status==='playing')return renderPlaying(main,c);
+  swap(main,c.status==='setup'?viewGetReady(c):c.status==='reveal'?viewReveal(c):viewFinal(c));
 }
 function netBanner(){
   const b=$('#net');if(!b)return;
   let msg='';
-  if(mode==='group'&&role==='client'&&net!=='ok')msg=net==='nohost'?'لا نجد غرفة المدير. تأكد أن جوال المدير فاتح اللعبة… نحاول من جديد':'انقطع الاتصال بجوال المدير… نحاول من جديد';
-  if(mode==='group'&&role==='host'&&net!=='ok')msg='جارٍ فتح الغرفة… أبقِ هذه الصفحة مفتوحة';
+  if(isAdmin()){if(net==='taken')msg='الغرفة مفتوحة على جهاز آخر. أغلق صفحة المدير هناك… نحاول من جديد';else if(net!=='ok')msg='جارٍ فتح الغرفة… أبقِ هذه الصفحة مفتوحة'}
+  else if(joined&&S&&net!=='ok')msg='انقطع الاتصال بالمدير… نحاول من جديد';
   b.textContent=msg;b.hidden=!msg;
 }
 function swap(main,node){builtKey=null;if(sortable){sortable.destroy();sortable=null}
@@ -256,120 +208,63 @@ function swap(main,node){builtKey=null;if(sortable){sortable.destroy();sortable=
   main.replaceChildren(node);
   if(id){const n=document.getElementById(id);if(n&&n!==a&&n.tagName==='INPUT'){n.value=val;n.focus();try{n.setSelectionRange(sel,sel)}catch(e){}}}
 }
-const back=(label='الرئيسية')=>h('button',{class:'link back',onclick:()=>{if(role==='local')leave();mode='home';render()}},'→ '+label);
 const seg=(label,val,opts,onpick,fmt=num,disabledFn)=>h('div',{class:'field'},h('span',{class:'lbl'},label),
   h('div',{class:'seg'},opts.map(o=>h('button',{class:'chip','aria-pressed':String(val===o),disabled:disabledFn&&disabledFn(o),onclick:()=>onpick(o)},fmt(o)))));
 function nickField(){
-  return h('div',{class:'field'},h('label',{for:'nick'},'اسمك في اللعبة'),
+  return h('div',{class:'field'},h('label',{for:'nick'},'اسمك'),
     h('input',{type:'text',id:'nick',maxlength:'24',autocomplete:'nickname',placeholder:'مثلاً: أبو فهد',value:nick,oninput:e=>{nick=e.target.value.trim();store('nick',nick)}}));
 }
 function needNick(){toast('اكتب اسمك أولًا');const n=$('#nick');if(n)n.focus()}
-function roomLink(){return location.origin+location.pathname+'?room='+roomCode}
-
-function viewHome(){
-  const wrap=h('div',{class:'stack'});
-  wrap.append(h('section',{class:'panel'},nickField()));
-  if((role==='host'||role==='client')&&S){
-    wrap.append(h('section',{class:'panel'+(role==='host'?' admin':'')},h('h3',{},role==='host'?`غرفتك مفتوحة: ${num(roomCode)}`:'أنت في غرفة لعب'),
-      h('button',{class:'btn primary block',onclick:()=>{mode='group';render()}},role==='host'?'ارجع إلى الغرفة':'ارجع إلى اللعبة')));
-  }
-  if(role!=='host'){
-    wrap.append(h('section',{class:'panel'},
-      h('h2',{},'انضم إلى لعبة'),
-      h('p',{class:'muted small'},'افتح الرابط الذي أرسله المدير، أو اكتب رمز الغرفة الظاهر على جواله.'),
-      h('div',{class:'field'},h('label',{for:'code'},'رمز الغرفة'),h('input',{type:'text',id:'code',inputmode:'numeric',maxlength:'5',placeholder:'مثلاً: 48273',autocomplete:'off'})),
-      h('button',{class:'btn primary block',onclick:()=>{const v=($('#code').value||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/\D/g,'');if(v.length!==5){toast('رمز الغرفة ٥ أرقام');return}clientJoin(v)}},'انضم')));
-  }
-  const saved=(()=>{try{return JSON.parse(load('hostState')||'null')}catch(e){return null}})();
-  const canResume=role!=='host'&&saved&&saved.settings&&saved.status!=='done';
-  wrap.append(h('section',{class:'panel admin'},
-    h('span',{class:'badge'},'للمدير'),
-    h('p',{class:'small'},'المدير يفتح الغرفة من جواله، ويتحكم في الإعدادات والجولات وأحداث العائلة. يجب أن تبقى الصفحة مفتوحة على جوال المدير أثناء اللعب.'),
-    canResume?h('button',{class:'btn primary block',onclick:()=>hostOpen(true)},'تابع غرفتي السابقة'):null,
-    role!=='host'?h('button',{class:'btn block'+(canResume?'':' primary'),onclick:()=>{unstore('hostState');hostOpen(false)}},'افتح غرفة جديدة (أنا المدير)'):null,
-    h('button',{class:'btn block',onclick:()=>{mode='family';render()}},`أحداث العائلة (${num(family.length)})`)));
-  wrap.append(h('section',{class:'panel'},
-    h('h2',{},'كيف نلعب؟'),
-    h('p',{},'في كل سؤال تظهر أحداث من فئة واحدة بترتيب عشوائي. اسحبها أو حرّكها بالأسهم حتى يصبح الأقدم في الأعلى والأحدث في الأسفل.'),
-    h('p',{class:'muted small'},'الفئات تتناوب: تاريخ، ثم كرة، ثم أوبئة… وعندما ينتهي وقت السؤال يُرسل ترتيبك تلقائيًا وتنتقل اللعبة إلى السؤال التالي. نقطة لكل حدث في مكانه الصحيح، و٣ نقاط إضافية للترتيب الكامل.'),
-    role!=='host'&&role!=='client'?h('button',{class:'btn block',onclick:openLocal},'تدرّب وحدك'):null));
-  return wrap;
-}
-function viewJoin(){
-  return h('div',{class:'stack'},h('section',{class:'panel'},
-    h('h2',{},'أهلًا بك في اللعبة'),
-    h('p',{class:'muted'},`رمز الغرفة: ${num(urlRoom)}`),
-    nickField(),
-    h('button',{class:'btn primary block',onclick:()=>clientJoin(urlRoom)},'انضم')),
-    h('button',{class:'link back',onclick:()=>{mode='home';render()}},'→ الرئيسية'));
-}
-function viewConnecting(){
-  return h('div',{class:'stack'},h('section',{class:'panel'},h('h2',{},'جارٍ الاتصال بالغرفة…'),
-    h('p',{class:'muted'},net==='nohost'?'لم نجد الغرفة بعد. تأكد أن المدير فاتح اللعبة على جواله والرمز صحيح.':'لحظات من فضلك.'),
-    h('button',{class:'link',onclick:()=>{leave();render()}},'إلغاء')));
-}
-
 function peopleList(list,doneFn){
-  return h('div',{class:'people'},list.map(p=>h('span',{class:(doneFn&&doneFn(p)?'done ':'')+(p.id===myPid?'me ':'')+(p.online===false?'off':'')},(p.name||'لاعب')+(p.id===myPid?' (أنت)':''))));
+  return h('div',{class:'people'},list.length?list.map(p=>h('span',{class:(doneFn&&doneFn(p)?'done ':'')+(p.id===myPid?'me ':'')+(p.online===false?'off':'')},(p.name||'لاعب')+(p.id===myPid?' (أنت)':''))):h('span',{class:'muted'},'لا أحد بعد'));
 }
 function teamsBlock(c,editable){
   const col=k=>{const mem=c.players.filter(p=>teamOf(p,c.players)===k);
     return h('div',{class:'team',style:`--tc:${TEAMS[k].v}`},h('h3',{},TEAMS[k].name),
-      h('div',{class:'people'},mem.length?mem.map(p=>editable?h('button',{title:'انقله إلى الفريق الآخر',onclick:()=>moveTeam(p)},(p.name||'لاعب')+' ⇄'):h('span',{class:p.id===myPid?'me':''},p.name||'لاعب')):h('span',{class:'muted'},'لا أحد')))};
+      h('div',{class:'people'},mem.length?mem.map(p=>editable?h('button',{title:'انقله إلى الفريق الآخر',class:p.online===false?'off':'',onclick:()=>moveTeam(p)},(p.name||'لاعب')+' ⇄'):h('span',{class:p.id===myPid?'me':''},(p.name||'لاعب')+(p.id===myPid?' (أنت)':''))):h('span',{class:'muted'},'لا أحد')))};
   return h('div',{class:'teams'},col('A'),col('B'));
 }
-function roomPanel(){
-  const link=roomLink();
-  const qr=h('div',{class:'qr','aria-label':'رمز QR لرابط الغرفة'});
-  try{const q=qrcode(0,'M');q.addData(link);q.make();qr.innerHTML=q.createSvgTag({cellSize:5,margin:2,scalable:true})}catch(e){}
-  const wa='https://wa.me/?text='+encodeURIComponent('تعالوا نلعب «رتّب الزمن» 🎯\n'+link);
-  return h('section',{class:'panel room'},
-    h('div',{class:'status'},h('span',{class:'lbl'},'رمز الغرفة'),h('span',{class:'pill'},net==='ok'?'الغرفة مفتوحة ✓':'جارٍ الفتح…')),
-    h('div',{class:'code',dir:'ltr'},roomCode),
-    qr,
-    h('p',{class:'muted small'},'يمسح أفراد العائلة الرمز بكاميرا الجوال، أو ترسل لهم الرابط:'),
-    h('div',{class:'linkbox',dir:'ltr',id:'roomlink'},link),
-    h('div',{class:'row'},
-      h('button',{class:'btn',onclick:()=>{navigator.clipboard.writeText(link).then(()=>toast('نُسخ الرابط ✓'),()=>{const r=document.createRange();r.selectNodeContents($('#roomlink'));getSelection().removeAllRanges();getSelection().addRange(r);toast('الرابط محدد، انسخه')})}},'انسخ الرابط'),
-      h('a',{class:'btn',href:wa,target:'_blank',rel:'noopener'},'أرسل عبر واتساب')));
-}
 
-// waiting room / admin setup before each round
-function viewSetupRound(c){
-  const st=S.settings;
-  const head=h('div',{class:'status'},h('h2',{},c.local?'تدرّب وحدك':(c.r===0?'غرفة الانتظار':`قبل الجولة ${num(c.r+1)}`)),c.local?null:h('span',{class:'pill'},`${num(c.players.length)} لاعبين`));
-  const out=h('div',{class:'stack'},back(),head);
-  if(isAdmin()){
-    const set=(k,v)=>{st[k]=v;commit()};
-    const avail=availableCats();
-    const catBox=h('div',{class:'chips',role:'group','aria-label':'الفئات'},Object.entries(CATS).map(([k,v])=>{
-      const dis=!avail.includes(k);const on=st.cats.includes(k)&&!dis;
-      return h('button',{class:'chip',style:cc(k),'aria-pressed':String(on),disabled:dis,onclick:()=>{const s=new Set(st.cats);if(on){if(st.cats.filter(x=>avail.includes(x)).length<=1){toast('اختر فئة واحدة على الأقل');return}s.delete(k)}else s.add(k);set('cats',[...s])}},
-        (on?'✓ ':'')+v.name,h('small',{},dis?'أضف ٣ أحداث على الأقل':v.hint));
-    }));
-    if(role==='host'&&c.r===0)out.append(roomPanel());
-    out.append(h('section',{class:'panel admin'},
-      h('span',{class:'badge'},c.local?'الإعدادات':'إعدادات المدير'),
-      c.local?null:seg('طريقة اللعب',st.mode,['solo','teams'],o=>set('mode',o),o=>o==='teams'?'فريقان':'كل لاعب وحده'),
-      c.local?null:(c.teams?h('div',{class:'stack'},h('p',{class:'muted small'},'اضغط على اسم اللاعب لنقله إلى الفريق الآخر.'),teamsBlock(c,true),
-        h('button',{class:'link',onclick:shuffleTeams},'وزّع الفرق عشوائيًا')):peopleList(c.players)),
-      h('div',{class:'field'},h('span',{class:'lbl'},'الفئات (تتناوب سؤالًا بعد سؤال)'),catBox),
-      c.local?null:seg('عدد الجولات',st.totalRounds,[1,2,3,5],o=>set('totalRounds',o),num,o=>o<c.r+1),
-      seg('عدد الأحداث في كل سؤال',st.perQ,[3,4,5],o=>set('perQ',o)),
-      seg('وقت كل سؤال (ثانية)',st.secs,[6,10,15],o=>set('secs',o)),
-      h('p',{class:'muted small'},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة. مدة الجولة تقريبًا: ${num(Math.ceil(QUESTIONS_PER_ROUND*(st.secs+READY_MS/1000)))} ثانية.`),
-      h('button',{class:'btn primary block',onclick:()=>startRound(c)},c.local?'ابدأ':`ابدأ الجولة ${num(c.r+1)} من ${num(c.total)}`)));
-    if(role==='host'&&c.r>0)out.append(roomPanel());
-  }else{
-    out.append(h('section',{class:'panel'},
-      c.r===0?h('p',{},'أنت في الغرفة ✓ انتظر حتى يبدأ المدير.'):null,
-      h('h3',{},`المدير يجهّز الجولة ${num(c.r+1)} من ${num(c.total)}…`),
-      h('p',{class:'muted'},`${num(QUESTIONS_PER_ROUND)} أسئلة · ${num(st.secs)} ثوانٍ لكل سؤال · ${c.teams?'فريقان':'كل لاعب وحده'}`),
-      c.teams?teamsBlock(c,false):peopleList(c.players)));
-  }
-  if(c.r>0&&!c.local)out.append(h('section',{class:'panel'},h('h3',{},'النتائج حتى الآن'),board(c,c.r-1)));
+// ---------- player screens ----------
+function viewWelcome(){
+  return h('div',{class:'stack'},h('section',{class:'panel'},
+    h('h2',{},'أهلًا بك 👋'),
+    h('p',{},'اكتب اسمك وادخل الغرفة، ثم انتظر حتى يبدأ المدير اللعبة.'),
+    nickField(),
+    h('button',{class:'btn primary block',onclick:playerJoin},'ادخل الغرفة')),
+    howTo());
+}
+function howTo(){
+  return h('section',{class:'panel'},
+    h('h3',{},'كيف نلعب؟'),
+    h('p',{},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة. في كل سؤال تظهر أحداث من فئة واحدة بترتيب عشوائي: اسحبها أو حرّكها بالأسهم حتى يصبح الأقدم في الأعلى والأحدث في الأسفل.`),
+    h('p',{class:'muted small'},'عندما ينتهي وقت السؤال يُرسل ترتيبك تلقائيًا وتنتقل اللعبة إلى السؤال التالي. نقطة لكل حدث في مكانه الصحيح، و٣ نقاط إضافية للترتيب الكامل.'),
+    h('a',{class:'link',href:'references.html'},'مصادر الأسئلة'));
+}
+function viewConnecting(){
+  return h('div',{class:'stack'},h('section',{class:'panel',style:'text-align:center;align-items:center'},
+    h('div',{class:'spinner','aria-hidden':'true'}),
+    h('h2',{},net==='nohost'?'المدير لم يفتح الغرفة بعد':'جارٍ الدخول إلى الغرفة…'),
+    h('p',{class:'muted'},net==='nohost'?'ابقَ في هذه الصفحة، وستدخل تلقائيًا عندما يفتح المدير الغرفة.':'لحظات من فضلك.')));
+}
+function viewGetReady(c){
+  const st=S.settings;const myTeam=c.teams&&c.me?TEAMS[teamOf(c.me,c.players)]:null;
+  const out=h('div',{class:'stack'},
+    h('section',{class:'panel getready'},
+      h('div',{class:'spinner','aria-hidden':'true'}),
+      h('h2',{class:'gr'},'استعد!'),
+      h('p',{},c.r===0?`أهلًا ${c.me.name}، أنت في الغرفة ✓`:`الجولة ${num(c.r+1)} من ${num(c.total)} على وشك البدء`),
+      h('p',{class:'muted'},'ستبدأ اللعبة على جوالك تلقائيًا عندما يضغط المدير «ابدأ».'),
+      myTeam?h('p',{class:'myteam',style:`--tc:${myTeam.v}`},'فريقك: ',h('strong',{},myTeam.name)):null,
+      h('p',{class:'muted small'},`${num(QUESTIONS_PER_ROUND)} أسئلة · ${num(st.secs)} ثوانٍ لكل سؤال`)),
+    h('section',{class:'panel'},h('div',{class:'status'},h('h3',{},'في الغرفة'),h('span',{class:'pill'},num(c.players.filter(p=>p.online!==false).length))),
+      c.teams?teamsBlock(c,false):peopleList(c.players.filter(p=>p.online!==false))));
+  if(c.r>0)out.append(h('section',{class:'panel'},h('h3',{},'النتائج حتى الآن'),myScore(c),board(c,c.r-1)));
+  else out.append(howTo());
+  out.append(h('button',{class:'link',onclick:changeName},'غيّر اسمي'));
   return out;
 }
+function changeName(){joined=false;if(peer){try{peer.destroy()}catch(e){}}peer=null;hostConn=null;S=null;connecting=false;net='idle';render()}
 
 // one question at a time, driven by the clock
 function renderPlaying(main,c){
@@ -377,8 +272,7 @@ function renderPlaying(main,c){
   const ph=phase(R);
   const pk=ph.over?`${c.key}:${c.r}:over`:`${c.key}:${c.r}:${ph.q}:${ph.stage}`;
   if(builtKey===pk)return updateClock(ph);
-  // leaving an answer screen: send what the player has right now
-  if(answering&&answering!==pk&&$('#order'))finalize(answering);
+  if(answering&&answering!==pk&&$('#order'))finalize(answering);   // time is up: send what the player has
   answering=null;
   const n=R.questions.length;
   let node;
@@ -394,8 +288,8 @@ function renderPlaying(main,c){
           h('p',{class:'muted small'},`رتّب ${num(Q.evs.length)} أحداث خلال ${num(Math.round(R.dur/1000))} ثوانٍ`)),timer);
     }else{
       answering=pk;
-      const list=h('ol',{class:'order',id:'order'});
       const k=qkey(c.r,ph.q);
+      const list=h('ol',{class:'order',id:'order'});
       (drafts[k]||Q.evs.map((_,i)=>i)).forEach(ix=>list.append(eventCard(Q.evs[ix],ix,k)));
       node=h('div',{class:'stack'},prog,timer,
         h('section',{class:'panel'},h('div',{class:'ends'},h('span',{},'▲ الأقدم'),h('span',{},'الأحدث ▼')),list,
@@ -428,82 +322,142 @@ function finalize(pk){
   const parts=pk.split(':');const r=+parts[1],q=+parts[2];const k=qkey(r,q);
   if(sentFor[k])return;sentFor[k]=true;
   const order=currentOrder();
-  if(isAdmin()){applyAnswer(myPid,r,q,order);commit();return}
   const me=S.players[myPid];if(me)me.answers[k]=order;
   if(hostConn&&hostConn.open){try{hostConn.send({t:'answer',r,q,order})}catch(e){}}
 }
 
-// clock loop: moves between questions; the admin's phone ends the round
-function tick(){
-  if(mode!=='group'||!S||S.status!=='playing')return;
-  const c=ctx();if(!c.R)return;
-  renderPlaying($('#main'),c);
-  const ph=phase(c.R);
-  if(ph.over&&isAdmin()&&!revealFor[c.key+c.r]&&ph.since>(role==='local'?300:2500)){revealFor[c.key+c.r]=true;S.status='reveal';commit()}
+// ---------- admin screens ----------
+function linkPanel(){
+  const link=playerUrl();
+  const qr=h('div',{class:'qr','aria-label':'رمز QR لرابط اللاعبين'});
+  try{const q=qrcode(0,'M');q.addData(link);q.make();qr.innerHTML=q.createSvgTag({cellSize:5,margin:2,scalable:true})}catch(e){}
+  const wa='https://wa.me/?text='+encodeURIComponent('تعالوا نلعب «رتّب الزمن» 🎯\nافتحوا الرابط واكتبوا أسماءكم:\n'+link);
+  return h('section',{class:'panel room'},
+    h('div',{class:'status'},h('h3',{},'رابط اللاعبين'),h('span',{class:'pill'},net==='ok'?'الغرفة مفتوحة ✓':'جارٍ الفتح…')),
+    h('div',{class:'roomgrid'},qr,h('div',{class:'stack',style:'min-width:0'},
+      h('p',{class:'muted small'},'يمسح أفراد العائلة الرمز بالكاميرا، أو ترسل لهم الرابط. الرابط ثابت لا يتغير.'),
+      h('div',{class:'linkbox',dir:'ltr',id:'roomlink'},link),
+      h('div',{class:'row'},
+        h('button',{class:'btn',onclick:()=>{navigator.clipboard.writeText(link).then(()=>toast('نُسخ الرابط ✓'),()=>{const r=document.createRange();r.selectNodeContents($('#roomlink'));getSelection().removeAllRanges();getSelection().addRange(r);toast('الرابط محدد، انسخه')})}},'انسخ'),
+        h('a',{class:'btn',href:wa,target:'_blank',rel:'noopener'},'واتساب')))));
 }
-setInterval(tick,200);
+function viewAdminSetup(c){
+  const st=S.settings;const set=(k,v)=>{st[k]=v;commit()};
+  const avail=availableCats();
+  const catBox=h('div',{class:'chips',role:'group','aria-label':'الفئات'},Object.entries(CATS).map(([k,v])=>{
+    const dis=!avail.includes(k);const on=st.cats.includes(k)&&!dis;
+    return h('button',{class:'chip',style:cc(k),'aria-pressed':String(on),disabled:dis,onclick:()=>{const s=new Set(st.cats);if(on){if(st.cats.filter(x=>avail.includes(x)).length<=1){toast('اختر فئة واحدة على الأقل');return}s.delete(k)}else s.add(k);set('cats',[...s])}},
+      (on?'✓ ':'')+v.name,h('small',{},dis?'أضف ٣ أحداث عائلية على الأقل':v.hint));
+  }));
+  const online=c.players.filter(p=>p.online!==false);
+  const out=h('div',{class:'stack'},
+    h('div',{class:'status'},h('h2',{},c.r===0?'تجهيز اللعبة':`قبل الجولة ${num(c.r+1)} من ${num(c.total)}`),h('span',{class:'pill'},`${num(online.length)} لاعبين متصلين`)),
+    linkPanel(),
+    h('section',{class:'panel'},
+      h('h3',{},'اللاعبون'),
+      seg('طريقة اللعب',st.mode,['solo','teams'],o=>set('mode',o),o=>o==='teams'?'فريقان':'كل لاعب وحده'),
+      c.teams?h('div',{class:'stack'},h('p',{class:'muted small'},'اضغط على اسم اللاعب لنقله إلى الفريق الآخر.'),teamsBlock(c,true),
+        h('button',{class:'link',onclick:shuffleTeams},'وزّع الفرق عشوائيًا')):peopleList(c.players),
+      c.players.some(p=>p.online===false)?h('p',{class:'muted small'},'الأسماء المشطوبة غير متصلة الآن.'):null),
+    h('section',{class:'panel'},
+      h('h3',{},'الأسئلة'),
+      h('div',{class:'field'},h('span',{class:'lbl'},'الفئات (تتناوب سؤالًا بعد سؤال)'),catBox),
+      seg('عدد الجولات',st.totalRounds,[1,2,3,5],o=>set('totalRounds',o),num,o=>o<c.r+1),
+      seg('عدد الأحداث في كل سؤال',st.perQ,[3,4,5],o=>set('perQ',o)),
+      seg('وقت كل سؤال (ثانية)',st.secs,[6,10,15],o=>set('secs',o)),
+      h('p',{class:'muted small'},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة، ومدتها تقريبًا ${num(Math.ceil(QUESTIONS_PER_ROUND*(st.secs+READY_MS/1000)))} ثانية.`),
+      h('button',{class:'link',onclick:()=>{view='family';render()}},`أحداث العائلة (${num(family.length)})`)),
+    h('button',{class:'btn primary block big-start',disabled:!online.length,onclick:()=>startRound(c)},online.length?`ابدأ الجولة ${num(c.r+1)} للجميع`:'بانتظار دخول اللاعبين…'));
+  if(c.r>0)out.append(h('section',{class:'panel'},h('h3',{},'النتائج حتى الآن'),board(c,c.r-1)));
+  out.append(h('p',{class:'muted small'},'أبقِ هذه الصفحة مفتوحة طوال اللعب، فهي التي تدير الغرفة.'));
+  return out;
+}
+// live view while a round runs: progress and who has answered, without showing the answers
+function renderAdminLive(main,c){
+  const R=c.R;const ph=phase(R);const n=R.questions.length;
+  const pk=ph.over?'over':`${ph.q}:${ph.stage}`;
+  const qi=ph.over?n-1:ph.q;const k=qkey(c.r,qi);
+  const sig=pk+'|'+c.players.map(p=>p.id+(p.answers[k]?1:0)+(p.online===false?0:1)).join(',');
+  if(builtKey===sig)return updateClock(ph);
+  swap(main,h('div',{class:'stack'},
+    h('div',{class:'status'},h('h2',{},`الجولة ${num(c.r+1)} من ${num(c.total)}`),h('span',{class:'pill'},ph.over?'انتهت':`سؤال ${num(ph.q+1)} من ${num(n)}`)),
+    ph.over?h('section',{class:'panel'},h('p',{},'نجمع الإجابات الأخيرة…')):h('section',{class:'panel'},
+      h('div',{class:'status'},h('span',{class:'tag',style:cc(R.questions[ph.q].cat)},CATS[R.questions[ph.q].cat].name),h('span',{class:'muted small'},ph.stage==='ready'?'استعداد':'وقت الإجابة')),
+      h('div',{class:'timer',id:'timer'},h('div',{class:'bar'},h('i',{})),h('span',{class:'sec'},'')),
+      h('div',{class:'qdots'},R.questions.map((Q,i)=>h('span',{class:'qd'+(i<ph.q?' past':i===ph.q?' now':''),style:cc(Q.cat),title:CATS[Q.cat].name},num(i+1))))),
+    h('section',{class:'panel'},h('h3',{},`أجاب على السؤال ${num(qi+1)}`),peopleList(c.players,p=>p.answers[k])),
+    h('button',{class:'btn block',onclick:()=>{S.status='reveal';commit()}},'أنهِ الجولة الآن واعرض النتائج')));
+  builtKey=sig;updateClock(ph);
+}
 
+// ---------- shared screens: results ----------
+function myScore(c){
+  if(!c.me)return null;
+  const list=ranked(c.players);const rank=list.findIndex(p=>p.id===myPid)+1;
+  return h('div',{class:'mine'},h('span',{},'نقاطك: ',h('strong',{},num(c.me.total||0))),h('span',{},'ترتيبك: ',h('strong',{},`${num(rank)} من ${num(list.length)}`)),
+    c.teams?h('span',{style:`color:${TEAMS[teamOf(c.me,c.players)].v}`},TEAMS[teamOf(c.me,c.players)].name):null);
+}
 function viewReveal(c){
   const R=c.R;const me=c.me;const last=c.r>=c.total-1;
-  const mine=me?roundPts(me,c.r):0;const maxPts=R.questions.reduce((s,Q)=>s+Q.evs.length+3,0);
+  const maxPts=R.questions.reduce((s,Q)=>s+Q.evs.length+3,0);
   const cards=R.questions.map((Q,qi)=>{
     const k=qkey(c.r,qi);const ans=me&&me.answers[k];const corr=correctOrder(Q.evs);const res=ans?scoreOf(Q.evs,ans):null;
     return h('section',{class:'qcard',style:cc(Q.cat)},
       h('div',{class:'status'},h('span',{class:'tag'},`${num(qi+1)} · ${CATS[Q.cat].name}`),
-        res?h('span',{class:res.perfect?'ok small':'muted small'},res.perfect?`✓ كامل +${num(res.pts)}`:`${num(res.hits)}/${num(Q.evs.length)} +${num(res.pts)}`):h('span',{class:'no small'},'لم يُرسل')),
+        me?(res?h('span',{class:res.perfect?'ok small':'muted small'},res.perfect?`✓ كامل +${num(res.pts)}`:`${num(res.hits)}/${num(Q.evs.length)} +${num(res.pts)}`):h('span',{class:'no small'},'لم يُرسل')):null),
       h('ol',{class:'mini'},corr.map((ix,pos)=>h('li',{},h('span',{class:'y'},num(Q.evs[ix].y)),h('span',{class:'tt',text:Q.evs[ix].t}),
-        ans?h('span',{class:ans.indexOf(ix)===pos?'ok':'no'},ans.indexOf(ix)===pos?'✓':'✗'):null))));
+        ans?h('span',{class:ans.indexOf(ix)===pos?'ok':'no'},ans.indexOf(ix)===pos?'✓':'✗'):h('span',{})))));
   });
   return h('div',{class:'stack'},
-    h('div',{class:'status'},h('h2',{},c.local?'نتيجتك':`نتائج الجولة ${num(c.r+1)}`)),
-    h('section',{class:'panel'},h('div',{class:'row'},h('span',{class:'big'},'+'+num(mine)),h('p',{},`نقاطك في هذه الجولة من أصل ${num(maxPts)}`))),
-    c.local?null:h('section',{class:'panel'},h('h3',{},'الترتيب حتى الآن'),board(c,c.r)),
+    h('div',{class:'status'},h('h2',{},`نتائج الجولة ${num(c.r+1)} من ${num(c.total)}`)),
+    me?h('section',{class:'panel'},h('div',{class:'row'},h('span',{class:'big'},'+'+num(roundPts(me,c.r))),h('p',{},`نقاطك في هذه الجولة من أصل ${num(maxPts)}`)),myScore(c)):null,
+    h('section',{class:'panel'},h('h3',{},'لوحة الترتيب'),board(c,c.r)),
+    isAdmin()?h('button',{class:'btn primary block',onclick:()=>advance(c,last)},last?'اعرض النتيجة النهائية للجميع':'جهّز الجولة التالية'):h('p',{class:'muted'},last?'ننتظر المدير لعرض النتيجة النهائية…':'استعد للجولة التالية، المدير يجهّزها الآن…'),
     h('h3',{},'الإجابات الصحيحة (من الأقدم إلى الأحدث)'),
-    ...cards,
-    isAdmin()?h('button',{class:'btn primary block',onclick:()=>advance(c,last)},c.local?'العب مرة ثانية':(last?'اعرض النتيجة النهائية':'جهّز الجولة التالية')):h('p',{class:'muted'},'ننتظر المدير لتجهيز الجولة التالية…'),
-    c.local?back():null);
+    ...cards);
 }
 function teamTotals(c){
   const t={A:{pts:0,mem:[]},B:{pts:0,mem:[]}};
   c.players.forEach(p=>{const k=teamOf(p,c.players);t[k].pts+=p.total||0;t[k].mem.push(p)});
   return t;
 }
-function board(c,r){
-  if(c.teams){
-    const t=teamTotals(c);const order=['A','B'].sort((a,b)=>t[b].pts-t[a].pts);
-    return h('div',{class:'stack'},order.map(k=>{
-      const rp=r!=null?t[k].mem.reduce((s,p)=>s+roundPts(p,r),0):null;
-      return h('div',{class:'team-score',style:`--tc:${TEAMS[k].v}`},
-        h('span',{class:'tn'},TEAMS[k].name,rp?h('span',{class:'plus'},'+'+num(rp)):null),
-        h('span',{class:'tp'},num(t[k].pts)),
-        h('span',{class:'mem'},t[k].mem.map(p=>`${p.name||'لاعب'} ${num(p.total||0)}`).join(' · ')||'لا أحد'))}));
-  }
-  const rows=[...c.players].sort((a,b)=>(b.total||0)-(a.total||0));
-  return h('table',{class:'sc'},h('tbody',{},rows.map((p,i)=>{const rp=r!=null?roundPts(p,r):0;return h('tr',{},
-    h('td',{class:'rk'},num(i+1)),h('td',{class:p.id===myPid?'me':''},(p.name||'لاعب')+(p.id===myPid?' (أنت)':''),rp?h('span',{class:'plus'},'+'+num(rp)):null),
+function playersTable(c,r){
+  return h('table',{class:'sc'},h('tbody',{},ranked(c.players).map((p,i)=>{const rp=r!=null?roundPts(p,r):0;return h('tr',{class:p.id===myPid?'meRow':''},
+    h('td',{class:'rk'},i<3&&(p.total||0)>0?['🥇','🥈','🥉'][i]:num(i+1)),h('td',{class:p.id===myPid?'me':''},(p.name||'لاعب')+(p.id===myPid?' (أنت)':''),rp?h('span',{class:'plus'},'+'+num(rp)):null),
     h('td',{class:'num'},num(p.total||0)+' نقطة'))})));
+}
+function board(c,r){
+  if(!c.teams)return playersTable(c,r);
+  const t=teamTotals(c);const order=['A','B'].sort((a,b)=>t[b].pts-t[a].pts);
+  return h('div',{class:'stack'},order.map(k=>{
+    const rp=r!=null?t[k].mem.reduce((s,p)=>s+roundPts(p,r),0):null;
+    return h('div',{class:'team-score',style:`--tc:${TEAMS[k].v}`},
+      h('span',{class:'tn'},TEAMS[k].name,rp?h('span',{class:'plus'},'+'+num(rp)):null),
+      h('span',{class:'tp'},num(t[k].pts)),
+      h('span',{class:'mem'},t[k].mem.map(p=>`${p.name||'لاعب'} ${num(p.total||0)}`).join(' · ')||'لا أحد'))}),
+    h('p',{class:'lbl'},'ترتيب اللاعبين'),playersTable(c,r));
 }
 function viewFinal(c){
   let title,sub;
   if(c.teams){const t=teamTotals(c);const w=t.A.pts===t.B.pts?null:(t.A.pts>t.B.pts?'A':'B');title=w?TEAMS[w].name:'تعادل!';sub=w?`${num(t[w].pts)} نقطة`:`${num(t.A.pts)} لكل فريق`}
-  else{const top=[...c.players].sort((a,b)=>(b.total||0)-(a.total||0))[0];title=top?top.name:'—';sub=top?`${num(top.total||0)} نقطة`:''}
+  else{const top=ranked(c.players)[0];title=top?top.name:'—';sub=top?`${num(top.total||0)} نقطة`:''}
   return h('div',{class:'stack'},
-    h('section',{class:'panel',style:'text-align:center;align-items:center'},
+    h('section',{class:'panel winner'},
       h('p',{class:'muted'},'الفائز 🏆'),
-      h('h2',{style:'font-size:2rem;color:var(--gold)'},title),h('p',{},sub)),
-    h('section',{class:'panel'},h('h3',{},'الترتيب النهائي'),board(c,null)),
-    isAdmin()?h('button',{class:'btn primary block',onclick:()=>{S=newGameState(true);commit()}},'لعبة جديدة بنفس اللاعبين'):h('p',{class:'muted'},'إذا بدأ المدير لعبة جديدة ستظهر هنا تلقائيًا.'),
-    back());
+      h('h2',{},title),h('p',{},sub),
+      c.me?myScore(c):null),
+    h('section',{class:'panel'},h('h3',{},'لوحة الترتيب النهائية'),board(c,null)),
+    isAdmin()?h('button',{class:'btn primary block',onclick:()=>{S=newGameState(true);commit()}},'لعبة جديدة بنفس اللاعبين'):h('p',{class:'muted'},'شكرًا على اللعب! إذا بدأ المدير لعبة جديدة ستظهر هنا تلقائيًا.'));
 }
 
 function viewFamily(){
   const sorted=[...family].sort((a,b)=>cmp({y:+a.year,m:+a.month||0},{y:+b.year,m:+b.month||0}));
   const monthSel=h('select',{id:'fm'},MONTHS.map((m,i)=>h('option',{value:i},i?m:'— بدون شهر —')));
-  return h('div',{class:'stack'},back(),
-    h('section',{class:'panel admin',style:cc('family')},
-      h('span',{class:'badge'},'للمدير · تُحفظ على هذا الجوال فقط'),
+  return h('div',{class:'stack'},h('button',{class:'link back',onclick:()=>{view='main';render()}},'→ رجوع'),
+    h('section',{class:'panel',style:cc('family')},
+      h('span',{class:'badge'},'تُحفظ على هذا الجهاز فقط'),
       h('h2',{},'أضف حدثًا عائليًا'),
-      h('p',{class:'muted small'},'مثل: زواج جدي، ولادة أول حفيد، الانتقال إلى البيت الجديد. تظهر في فئة «أحداث العائلة» عندما تفتح الغرفة من هذا الجوال، ولا يراها اللاعبون قبل السؤال.'),
+      h('p',{class:'muted small'},'مثل: زواج جدي، ولادة أول حفيد، الانتقال إلى البيت الجديد. تظهر في فئة «أحداث العائلة»، ولا يراها اللاعبون قبل السؤال.'),
       h('form',{class:'stack',onsubmit:addFamily},
         h('div',{class:'field'},h('label',{for:'ft'},'الحدث'),h('input',{type:'text',id:'ft',maxlength:'90',required:true,placeholder:'مثلاً: ولادة سارة'})),
         h('div',{class:'row'},
@@ -518,9 +472,9 @@ function viewFamily(){
         h('button',{class:'link',onclick:()=>{family=family.filter(x=>x.id!==f.id);saveFamily();render()}},'احذف')))):
       h('p',{class:'muted'},'لا توجد أحداث بعد. أضف ٣ أحداث على الأقل لتفتح فئة «أحداث العائلة».')));
 }
-function saveFamily(){store('family',JSON.stringify(family))}
+function saveFamily(){store('family',JSON.stringify(family));if(S&&S.settings&&family.length>=3&&!S.settings.cats.includes('family')){S.settings.cats.push('family');commit()}}
 
-// ---------- actions ----------
+// ---------- admin actions ----------
 function moveTeam(p){const cur=teamOf(p,playerList());S.teams={...(S.teams||{}),[p.id]:cur==='A'?'B':'A'};commit()}
 function shuffleTeams(){const t={};shuffle(playerList()).forEach((p,i)=>t[p.id]=i%2?'B':'A');S.teams=t;commit()}
 function startRound(c){
@@ -534,12 +488,11 @@ function startRound(c){
   }
   if(!questions.length){toast('لا توجد أحداث كافية');return}
   const list=playerList();const teams={...(S.teams||{})};list.forEach(p=>{teams[p.id]=teamOf(p,list)});
-  S.rounds[c.r]={questions,startedAt:Date.now()+800,ready:READY_MS,dur:st.secs*1000};
+  S.rounds[c.r]={questions,startedAt:Date.now()+1500,ready:READY_MS,dur:st.secs*1000};
   S.used=[...used];S.teams=teams;S.status='playing';
   commit();
 }
 function advance(c,last){
-  if(role==='local'){const st=S.settings;S=newGameState(false);S.settings=st;commit();return}
   if(last)S.status='done';else{S.status='setup';S.round=c.r+1}
   commit();
 }
@@ -547,18 +500,27 @@ function addFamily(ev){
   ev.preventDefault();
   const title=$('#ft').value.trim(),year=parseInt($('#fy').value,10),month=+$('#fm').value,note=$('#fn').value.trim();
   if(!title||!(year>=1800&&year<=2100)){toast('اكتب الحدث وسنة صحيحة');return}
-  family.push({id:rid(8),title,year,month,note});saveFamily();
-  $('#ft').value='';$('#fy').value='';$('#fn').value='';$('#fm').value='0';toast('أُضيف الحدث ✓');render();
+  family.push({id:rid(8),title,year,month,note});
+  $('#ft').value='';$('#fy').value='';$('#fn').value='';$('#fm').value='0';toast('أُضيف الحدث ✓');saveFamily();render();
 }
+
+// clock loop: moves between questions; the admin page ends the round
+function tick(){
+  if(!S||S.status!=='playing')return;
+  const c=ctx();if(!c.R)return;
+  if(isAdmin()){
+    if(view==='main')renderAdminLive($('#main'),c);
+    const ph=phase(c.R);
+    if(ph.over&&!revealFor[c.key+c.r]&&ph.since>2500){revealFor[c.key+c.r]=true;S.status='reveal';commit()}
+  }else if(joined&&c.me)renderPlaying($('#main'),c);
+}
+setInterval(tick,200);
 
 // scroll to top when the game moves to a new screen
 let lastRk='';
 const _render=render;
-render=function(){const rk=mode+(S?S.gameId+S.status+S.round:'');if(rk!==lastRk){lastRk=rk;_render();scrollTo(0,0)}else _render()};
+render=function(){const rk=view+joined+(S?S.gameId+S.status+S.round:'');if(rk!==lastRk){lastRk=rk;_render();scrollTo(0,0)}else _render()};
 
 // ---------- boot ----------
-if(urlRoom&&/^\d{5}$/.test(urlRoom)){
-  if(load('hostRoom')===urlRoom){mode='home'}   // the admin opened their own link
-  else if(nick){clientJoin(urlRoom)}else mode='join';
-}
-render();
+if(isAdmin())adminBoot();
+else{render();if(nick)playerJoin()}
