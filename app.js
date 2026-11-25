@@ -39,26 +39,27 @@ const hostNow=()=>Date.now()+clockOff;
 
 function poolFor(cat){
   if(cat==='family')return family.map(f=>({t:f.title,y:+f.year,m:+f.month||0,c:'family',n:f.note||''}));
-  return EVENTS[cat].map(([t,y])=>({t,y,m:0,c:cat}));
+  return EVENTS[cat].map(([t,y,,,m])=>({t,y,m:m||0,c:cat}));
 }
-function pickQuestion(cat,n,used){
-  if(cat==='islam'&&Math.random()<GHAZAWAT_SHARE){
-    const q=pickFrom(GHAZAWAT.map(([t,y,,,m])=>({t,y,m:m||0,c:'islam'})),0,n,used);
-    if(q)return q;
-  }
-  return pickFrom(poolFor(cat),GAP[cat],n,used);
-}
-function pickFrom(all,gap,n,used){
-  let pool=all.filter(e=>!used.has(e.t));if(pool.length<n)pool=all;
-  let best=[];
-  for(const g of [gap,Math.floor(gap/2),0]){
-    for(let t=0;t<40;t++){
+// Events never repeat within a game. Years stay well apart (easy); spacing is only
+// loosened as a last resort, after every category has been tried at normal spacing.
+function pickQuestion(cat,n,used,relaxed){
+  const pool=poolFor(cat).filter(e=>!used.has(e.t));
+  if(pool.length<n)return null;
+  const gap=GAP[cat];
+  for(const g of relaxed?[Math.floor(gap/2),0]:[gap,Math.floor(gap*0.6)]){
+    for(let t=0;t<60;t++){
       const p=[];
       for(const e of shuffle(pool)){if(p.some(q=>clash(q,e)||Math.abs(q.y-e.y)<g))continue;p.push(e);if(p.length===n)return shuffle(p)}
-      if(p.length>best.length)best=p;
     }
   }
-  return best.length>=2?shuffle(best):null;
+  return null;
+}
+// pick a question for the planned category, or another category if that one has run out
+function pickAnyQuestion(cat,cats,n,used,prev){
+  const others=shuffle(cats.filter(k=>k!==cat)).sort((a,b)=>(a===prev)-(b===prev));
+  for(const relaxed of [false,true])for(const k of [cat,...others]){const evs=pickQuestion(k,n,used,relaxed);if(evs)return{cat:k,evs}}
+  return null;
 }
 // categories take turns in a shuffled cycle, never the same one twice in a row
 function categorySequence(cats,n){
@@ -90,7 +91,7 @@ function phase(R){
 }
 
 // ================= ADMIN: owns the game =================
-function defaultSettings(){return{mode:'solo',totalRounds:3,perQ:3,secs:6,cats:availableCats(),v2:true}}
+function defaultSettings(){return{mode:'solo',totalRounds:3,perQ:3,secs:6,cats:availableCats(),v2:true,v3:true}}
 function loadHistory(){try{return JSON.parse(load('history')||'[]')}catch(e){return[]}}
 // save the finished (or abandoned) game's standings so everyone can look back at it
 function recordGame(finished){
@@ -119,10 +120,11 @@ function commit(){
   render();
 }
 function applyAnswer(pid,r,q,order){
-  const p=S.players[pid];if(!p||S.status!=='playing'||r!==S.round)return;
+  // answers can arrive late on a weak connection: accept them for the current round
+  // while it is playing or showing its results, so a delayed answer still counts
+  const p=S.players[pid];if(!p||!['playing','reveal'].includes(S.status)||r!==S.round)return;
   const R=S.rounds[r];const Q=R&&R.questions[q];if(!Q)return;
   const k=qkey(r,q);if(p.answers[k])return;
-  if(Date.now()>R.startedAt+(q+1)*(R.ready+R.dur)+4000)return;   // too late
   const evs=Q.evs;
   if(!Array.isArray(order)||order.length!==evs.length||new Set(order).size!==evs.length||order.some(x=>!(x>=0&&x<evs.length)))return;
   p.answers[k]=order;p.points[k]=scoreOf(evs,order).pts;p.total=Object.values(p.points).reduce((a,b)=>a+b,0);
@@ -132,6 +134,7 @@ function adminBoot(){
   S=saved&&saved.settings&&saved.status!=='done'?saved:newGameState(false);
   if(!S.history)S.history=loadHistory();
   if(!S.settings.v2){S.settings.v2=true;if(!S.settings.cats.includes('tv'))S.settings.cats.push('tv')}
+  if(!S.settings.v3){S.settings.v3=true;if(!S.settings.cats.includes('sira'))S.settings.cats.push('sira')}
   if(S.status==='playing'){S.status='setup'}            // a round cut off by a reload starts over
   for(const p of Object.values(S.players))p.online=false;
   store('hostState',JSON.stringify(S));
@@ -207,14 +210,12 @@ function connectHost(){
   c.on('open',()=>{clearTimeout(giveUp);connecting=false;net='ok';c.send({t:'hello',pid:myPid,name:nick,rejoin:rejoining});rejoining=false;render()});
   c.on('data',d=>{if(d&&d.t==='removed'){removed=true;joined=false;S=null;try{peer.destroy()}catch(e){}peer=null;hostConn=null;connecting=false;net='idle';render();return}
     if(d&&d.t==='state'&&d.S){
-    const mine=S&&S.players[myPid];S=d.S;clockOff=d.now-Date.now();
-    // keep answers this phone already sent until the admin confirms them
-    if(mine&&S.players[myPid])for(const[k,v]of Object.entries(mine.answers||{}))if(!S.players[myPid].answers[k]&&sentFor[k])S.players[myPid].answers[k]=v;
-    render()}});
+    S=d.S;clockOff=d.now-Date.now();
+    render();flushOutbox()}});
   c.on('close',()=>{clearTimeout(giveUp);connecting=false;if(hostConn===c){net='lost';render();setTimeout(connectHost,2500)}});
   c.on('error',()=>{});
 }
-setInterval(()=>{if(!isAdmin()&&hostConn&&hostConn.open){try{hostConn.send({t:'ping'})}catch(e){}}},4000);
+setInterval(()=>{if(!isAdmin()&&hostConn&&hostConn.open){try{hostConn.send({t:'ping'})}catch(e){}flushOutbox()}},3000);
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible')return;
   if(isAdmin()){keepAwake();if(peer&&peer.disconnected&&!peer.destroyed){try{peer.reconnect()}catch(e){}}}
@@ -369,12 +370,21 @@ function eventCard(e,ix,k){
   return li;
 }
 const currentOrder=()=>[...$('#order').children].map(li=>+li.dataset.ix);
+// answers wait here until the admin's state shows them, and are resent on every update or reconnect
+let outbox={};
 function finalize(pk){
   const parts=pk.split(':');const r=+parts[1],q=+parts[2];const k=qkey(r,q);
   if(sentFor[k])return;sentFor[k]=true;
-  const order=currentOrder();
-  const me=S.players[myPid];if(me)me.answers[k]=order;
-  if(hostConn&&hostConn.open){try{hostConn.send({t:'answer',r,q,order})}catch(e){}}
+  outbox[k]={gid:S.gameId,r,q,order:currentOrder()};
+  flushOutbox();
+}
+function flushOutbox(){
+  if(!S)return;
+  for(const[k,a]of Object.entries(outbox)){
+    const mine=S.players[myPid];
+    if(a.gid!==S.gameId||a.r!==S.round||!['playing','reveal'].includes(S.status)||(mine&&mine.answers[k])){if(a.gid!==S.gameId||a.r<S.round||(mine&&mine.answers[k]))delete outbox[k];continue}
+    if(hostConn&&hostConn.open){try{hostConn.send({t:'answer',r:a.r,q:a.q,order:a.order})}catch(e){}}
+  }
 }
 
 // ---------- admin screens ----------
@@ -559,11 +569,11 @@ function viewHistory(){
     })):h('p',{class:'muted'},'لا توجد ألعاب سابقة بعد. عندما تنتهي لعبة أو يبدأ المدير لعبة جديدة تُحفظ النتائج هنا.'));
 }
 function viewRefs(){
-  const lists=[...Object.entries(EVENTS).map(([cat,list])=>[cat,CATS[cat].name,list]),['islam','غزوات النبي ﷺ (ضمن التاريخ الإسلامي)',GHAZAWAT]];
+  const lists=Object.entries(EVENTS).map(([cat,list])=>[cat,CATS[cat].name,list]);
   const secs=lists.map(([cat,title,list])=>h('section',{class:'panel',style:cc(cat)},
     h('h2',{style:'color:var(--cc)'},`${title} (${num(list.length)})`),
-    h('ol',{class:'mini refs'},[...list].sort((a,b)=>a[1]-b[1]||(a[4]||0)-(b[4]||0)).map(([t,y,q,note])=>h('li',{},
-      h('span',{class:'y'},num(y)),h('span',{class:'tt'},t,note?h('span',{class:'muted small'},` (${note})`):null),
+    h('ol',{class:'mini refs'},[...list].sort((a,b)=>a[1]-b[1]||(a[4]||0)-(b[4]||0)).map(([t,y,q,note,m])=>h('li',{},
+      h('span',{class:'y'},(m?MONTHS[m]+' ':'')+num(y)),h('span',{class:'tt'},t,note?h('span',{class:'muted small'},` (${note})`):null),
       h('a',{class:'link small',href:'https://ar.wikipedia.org/w/index.php?search='+encodeURIComponent(q),target:'_blank',rel:'noopener'},'المصدر'))))));
   return h('div',{class:'stack'},h('button',{class:'link back',onclick:()=>{view='main';render()}},'→ رجوع'),
     h('h2',{},'مصادر الأسئلة'),
@@ -605,10 +615,11 @@ function startRound(c){
   if(!cats.length){toast('اختر فئة واحدة على الأقل');return}
   const used=new Set(S.used||[]);const questions=[];
   for(const cat of categorySequence(cats,QUESTIONS_PER_ROUND)){
-    const evs=pickQuestion(cat,st.perQ,used);if(!evs)continue;
-    evs.forEach(e=>used.add(e.t));questions.push({cat,evs});
+    const q=pickAnyQuestion(cat,cats,st.perQ,used,questions.length?questions[questions.length-1].cat:null);if(!q)break;
+    q.evs.forEach(e=>used.add(e.t));questions.push(q);
   }
-  if(!questions.length){toast('لا توجد أحداث كافية');return}
+  if(!questions.length){toast('انتهت كل الأحداث في هذه اللعبة. ابدأ لعبة جديدة أو قلّل عدد الأحداث في السؤال.');return}
+  if(questions.length<QUESTIONS_PER_ROUND)toast(`بقيت أحداث تكفي ${num(questions.length)} أسئلة فقط في هذه الجولة`);
   const list=playerList();const teams={...(S.teams||{})};list.forEach(p=>{teams[p.id]=teamOf(p,list)});
   S.rounds[c.r]={questions,startedAt:Date.now()+1500,ready:READY_MS,dur:st.secs*1000};
   S.used=[...used];S.teams=teams;S.status='playing';
