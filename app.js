@@ -637,27 +637,38 @@ function viewRefs(){
       h('p',{class:'muted small'},'مراجع عامة: موسوعة بريتانيكا (britannica.com)، الموقع الرسمي للفيفا (fifa.com) لأحداث كأس العالم، ومنظمة الصحة العالمية (who.int) لأحداث الأوبئة. هذه الصفحة تظهر للمدير فقط.')),
     ...secs);
 }
+let editingPack=null;   // id of the family question being edited, or null when adding a new one
+let famDraft={};        // what the admin has typed in the form, kept when the page redraws
+const keep=e=>{famDraft[e.target.id]=e.target.value};
+function startEdit(id){editingPack=id;famDraft={};render()}
 function viewFamily(){
+  const editing=packs.find(p=>p.id===editingPack)||null;if(!editing)editingPack=null;
+  const saved=(i,k)=>editing&&editing.events[i]?editing.events[i][k]:'';
+  const val=(i,k)=>{const id={title:'ft',year:'fy',month:'fm'}[k]+i;return id in famDraft?famDraft[id]:saved(i,k)};
   const row=i=>h('div',{class:'packrow'},
     h('span',{class:'pnum'},num(i+1)),
-    h('div',{class:'field'},h('label',{for:'ft'+i,class:'sr'},`الحدث ${num(i+1)}`),h('input',{type:'text',id:'ft'+i,maxlength:'90',placeholder:['مثلاً: زواج جدي','مثلاً: ولادة سارة','مثلاً: الانتقال إلى البيت الجديد'][i]})),
-    h('div',{class:'field yr'},h('label',{for:'fy'+i,class:'sr'},'السنة'),h('input',{type:'number',id:'fy'+i,inputmode:'numeric',min:'1800',max:'2100',placeholder:'السنة'})),
-    h('div',{class:'field mo'},h('label',{for:'fm'+i,class:'sr'},'الشهر'),h('select',{id:'fm'+i},MONTHS.map((m,j)=>h('option',{value:j},j?m:'الشهر')))));
-  return h('div',{class:'stack'},h('button',{class:'link back',onclick:()=>{view='main';render()}},'→ رجوع'),
-    h('section',{class:'panel',style:cc('family')},
+    h('div',{class:'field'},h('label',{for:'ft'+i,class:'sr'},`الحدث ${num(i+1)}`),h('input',{type:'text',id:'ft'+i,maxlength:'90',value:val(i,'title'),oninput:keep,placeholder:['مثلاً: زواج جدي','مثلاً: ولادة سارة','مثلاً: الانتقال إلى البيت الجديد'][i]})),
+    h('div',{class:'field yr'},h('label',{for:'fy'+i,class:'sr'},'السنة'),h('input',{type:'number',id:'fy'+i,inputmode:'numeric',min:'1800',max:'2100',value:val(i,'year')?String(val(i,'year')):'',oninput:keep,placeholder:'السنة'})),
+    h('div',{class:'field mo'},h('label',{for:'fm'+i,class:'sr'},'الشهر'),h('select',{id:'fm'+i,onchange:keep},MONTHS.map((m,j)=>h('option',{value:j,selected:(+val(i,'month')||0)===j},j?m:'الشهر')))));
+  return h('div',{class:'stack'},h('button',{class:'link back',onclick:()=>{editingPack=null;famDraft={};view='main';render()}},'→ رجوع'),
+    h('section',{class:'panel'+(editing?' editing':''),id:'packform',style:cc('family')},
       h('span',{class:'badge'},'تُحفظ على هذا الجهاز فقط'),
-      h('h2',{},'أضف سؤالًا عائليًا'),
+      h('h2',{},editing?`عدّل السؤال ${num(packs.indexOf(editing)+1)}`:'أضف سؤالًا عائليًا'),
       h('p',{class:'muted small'},'كل سؤال عائلي = ٣ أحداث تكتبها معًا. تظهر الثلاثة معًا في سؤال واحد ولا تختلط بأحداث أسئلة أخرى، وكل سؤال يظهر مرة واحدة في اللعبة. تظهر البطاقات للاعبين في أماكن عشوائية ليرتبوها هم. الشهر اختياري، ويلزم فقط إذا وقع حدثان في السنة نفسها.'),
       h('form',{class:'stack',onsubmit:addPack},row(0),row(1),row(2),
-        h('button',{class:'btn primary block',type:'submit'},'احفظ السؤال'))),
+        h('button',{class:'btn primary block',type:'submit'},editing?'احفظ التعديل':'احفظ السؤال'),
+        editing?h('button',{class:'btn block',type:'button',onclick:()=>startEdit(null)},'إلغاء التعديل'):null)),
     h('section',{class:'panel'},
       h('div',{class:'status'},h('h3',{},'أسئلة العائلة'),h('span',{class:'pill'},num(packs.length))),
       packs.length?h('ol',{class:'packs'},packs.map((p,pi)=>{
         const ok=packReady(p);const ev=[...p.events].sort((a,b)=>cmp({y:a.year,m:a.month},{y:b.year,m:b.month}));
         return h('li',{class:'pack'+(ok?'':' bad')},
-          h('div',{class:'status'},h('strong',{},`السؤال ${num(pi+1)}`),h('button',{class:'link danger-link',onclick:()=>{packs=packs.filter(x=>x.id!==p.id);savePacks();render()}},'احذف')),
+          h('div',{class:'status'},h('strong',{},`السؤال ${num(pi+1)}`+(p.id===editingPack?' · قيد التعديل':'')),
+            h('span',{class:'pact'},
+              h('button',{class:'link',onclick:()=>{startEdit(p.id);const f=$('#packform');if(f)f.scrollIntoView({behavior:'smooth',block:'start'});const i=$('#ft0');if(i)i.focus({preventScroll:true})}},'عدّل'),
+              h('button',{class:'link danger-link',onclick:()=>{if(editingPack===p.id)editingPack=null;packs=packs.filter(x=>x.id!==p.id);savePacks();render()}},'احذف'))),
           h('ol',{class:'mini'},ev.map(f=>h('li',{},h('span',{class:'y'},fmtDate({y:f.year,m:f.month})),h('span',{class:'tt',text:f.title}),h('span',{})))),
-          ok?null:h('p',{class:'no small'},p.events.length<PACK_SIZE?`ناقص: يحتاج ${num(PACK_SIZE)} أحداث. احذفه وأضفه من جديد.`:'حدثان بالتاريخ نفسه: احذفه وأضفه مع الشهر.'));
+          ok?null:h('p',{class:'no small'},p.events.length<PACK_SIZE?`ناقص: يحتاج ${num(PACK_SIZE)} أحداث. اضغط «عدّل» لإكماله.`:'حدثان بالتاريخ نفسه: اضغط «عدّل» واختر الشهر.'));
       })):h('p',{class:'muted'},'لا توجد أسئلة عائلية بعد. أضف سؤالًا واحدًا على الأقل لتفتح فئة «أحداث العائلة».')));
 }
 function savePacks(){
@@ -702,9 +713,13 @@ function addPack(ev){
   const evs=[0,1,2].map(i=>({title:$('#ft'+i).value.trim(),year:parseInt($('#fy'+i).value,10),month:+$('#fm'+i).value}));
   const bad=evs.findIndex(e=>!e.title||!(e.year>=1800&&e.year<=2100));
   if(bad>=0){toast(`اكتب الحدث ${num(bad+1)} وسنته (بين ١٨٠٠ و٢١٠٠)`);$('#'+(evs[bad].title?'fy':'ft')+bad).focus();return}
-  const p={id:rid(8),events:evs};
+  const editing=packs.find(x=>x.id===editingPack);
+  const p={id:editing?editing.id:rid(8),events:evs};
   if(!packReady(p)){toast('حدثان بالتاريخ نفسه: اختر الشهر لكل منهما ليُعرف الأقدم');return}
-  packs.push(p);savePacks();toast('حُفظ السؤال العائلي ✓');render();
+  if(editing){packs=packs.map(x=>x.id===p.id?p:x);editingPack=null;toast('حُفظ التعديل ✓')}
+  else{packs.push(p);toast('حُفظ السؤال العائلي ✓')}
+  famDraft={};
+  savePacks();render();
 }
 
 // clock loop: moves between questions; the admin page ends the round
