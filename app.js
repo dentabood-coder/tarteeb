@@ -37,7 +37,16 @@ const playerUrl=()=>location.origin+location.pathname.replace(/[^/]*$/,'');
 let S=null;               // shared game state (admin page owns it, players receive copies)
 let removed=false,rejoining=false;
 let myPid=null,peer=null,conns={},hostConn=null,clockOff=0,net='idle',connecting=false,joined=false;
-let family=[];try{family=JSON.parse(load('family')||'[]')}catch(e){family=[]}
+// family questions are packs of exactly 3 events the admin writes together; a pack is one question
+const PACK_SIZE=3;
+let packs=[];try{packs=JSON.parse(load('familyPacks')||'null')}catch(e){packs=null}
+if(!Array.isArray(packs)){
+  let old=[];try{old=JSON.parse(load('family')||'[]')}catch(e){}
+  packs=[];for(let i=0;i<old.length;i+=PACK_SIZE){const ev=old.slice(i,i+PACK_SIZE).map(f=>({title:f.title,year:+f.year,month:+f.month||0}));packs.push({id:rid(8),events:ev})}
+  store('familyPacks',JSON.stringify(packs));
+}
+const packReady=p=>p.events.length===PACK_SIZE&&!p.events.some((a,i)=>p.events.some((b,j)=>i<j&&clash({y:a.year,m:a.month},{y:b.year,m:b.month})));
+const readyPacks=()=>packs.filter(packReady);
 let nick=load('nick')||'';
 let view='main';          // 'main' | 'family' (admin) | 'history'
 let drafts={},builtKey=null,answering=null,sentFor={},revealFor={};
@@ -45,12 +54,17 @@ const isAdmin=()=>PAGE==='admin';
 const hostNow=()=>Date.now()+clockOff;
 
 function poolFor(cat){
-  if(cat==='family')return family.map(f=>({t:f.title,y:+f.year,m:+f.month||0,c:'family',n:f.note||''}));
+  if(cat==='family')return readyPacks().flatMap(p=>p.events.map(f=>({t:f.title,y:+f.year,m:+f.month||0,c:'family'})));
   return EVENTS[cat].map(([t,y,,,m])=>({t,y,m:m||0,c:cat}));
 }
 // Events never repeat within a game. Years stay well apart (easy); spacing is only
 // loosened as a last resort, after every category has been tried at normal spacing.
 function pickQuestion(cat,n,used,relaxed){
+  if(cat==='family'){   // a whole pack, never mixed with other packs; only the card positions are shuffled
+    const p=shuffle(readyPacks()).find(p=>!used.has('pack:'+p.id));if(!p)return null;
+    used.add('pack:'+p.id);
+    return shuffle(p.events.map(f=>({t:f.title,y:+f.year,m:+f.month||0,c:'family'})));
+  }
   const pool=poolFor(cat).filter(e=>!used.has(e.t));
   if(pool.length<n)return null;
   const gap=GAP[cat];
@@ -77,7 +91,7 @@ function categorySequence(cats,n){
   }
   return seq;
 }
-function availableCats(){return Object.keys(CATS).filter(k=>k!=='family'||family.length>=3)}
+function availableCats(){return Object.keys(CATS).filter(k=>k!=='family'||readyPacks().length>0)}
 function playerList(){if(!S)return[];return Object.entries(S.players).map(([id,p])=>({id,...p})).sort((a,b)=>(a.joinedAt||0)-(b.joinedAt||0))}
 // a player's team: the admin's choice, otherwise spread out by the order players joined
 function teamOf(p){const d=teamDefs();const t=(S&&S.teams||{})[p.id];if(t&&d.some(x=>x.id===t))return t;const i=Math.max(0,playerList().findIndex(x=>x.id===p.id));return d[i%d.length].id}
@@ -471,7 +485,7 @@ function viewAdminSetup(c){
   const catBox=h('div',{class:'chips',role:'group','aria-label':'الفئات'},Object.entries(CATS).map(([k,v])=>{
     const dis=!avail.includes(k);const on=st.cats.includes(k)&&!dis;
     return h('button',{class:'chip',style:cc(k),'aria-pressed':String(on),disabled:dis,onclick:()=>{const s=new Set(st.cats);if(on){if(st.cats.filter(x=>avail.includes(x)).length<=1){toast('اختر فئة واحدة على الأقل');return}s.delete(k)}else s.add(k);set('cats',[...s])}},
-      (on?'✓ ':'')+v.name,h('small',{},dis?'أضف ٣ أحداث عائلية على الأقل':v.hint));
+      (on?'✓ ':'')+v.name,h('small',{},dis?'أضف سؤالًا عائليًا واحدًا على الأقل':v.hint));
   }));
   const online=c.players.filter(p=>p.online!==false);
   const out=h('div',{class:'stack'},
@@ -491,7 +505,7 @@ function viewAdminSetup(c){
       seg('عدد الأحداث في كل سؤال',st.perQ,[3,4,5],o=>set('perQ',o)),
       secsPicker(st.secs,v=>set('secs',v)),
       h('p',{class:'muted small'},`كل جولة ${num(QUESTIONS_PER_ROUND)} أسئلة، ومدتها تقريبًا ${num(Math.ceil(QUESTIONS_PER_ROUND*(st.secs+READY_MS/1000)))} ثانية.`),
-      h('div',{class:'row'},h('button',{class:'link',onclick:()=>{view='family';render()}},`أحداث العائلة (${num(family.length)})`),
+      h('div',{class:'row'},h('button',{class:'link',onclick:()=>{view='family';render()}},`أسئلة العائلة (${num(readyPacks().length)})`),
         h('button',{class:'link',onclick:()=>{view='history';render()}},`سجل الألعاب السابقة (${num((S.history||[]).length)})`),
         h('button',{class:'link',onclick:()=>{view='refs';render()}},'مصادر الأسئلة'))),
     h('button',{class:'btn primary block big-start',disabled:!online.length,onclick:()=>startRound(c)},online.length?`ابدأ الجولة ${num(c.r+1)} للجميع`:'بانتظار دخول اللاعبين…'));
@@ -624,29 +638,32 @@ function viewRefs(){
     ...secs);
 }
 function viewFamily(){
-  const sorted=[...family].sort((a,b)=>cmp({y:+a.year,m:+a.month||0},{y:+b.year,m:+b.month||0}));
-  const monthSel=h('select',{id:'fm'},MONTHS.map((m,i)=>h('option',{value:i},i?m:'— بدون شهر —')));
+  const row=i=>h('div',{class:'packrow'},
+    h('span',{class:'pnum'},num(i+1)),
+    h('div',{class:'field'},h('label',{for:'ft'+i,class:'sr'},`الحدث ${num(i+1)}`),h('input',{type:'text',id:'ft'+i,maxlength:'90',placeholder:['مثلاً: زواج جدي','مثلاً: ولادة سارة','مثلاً: الانتقال إلى البيت الجديد'][i]})),
+    h('div',{class:'field yr'},h('label',{for:'fy'+i,class:'sr'},'السنة'),h('input',{type:'number',id:'fy'+i,inputmode:'numeric',min:'1800',max:'2100',placeholder:'السنة'})),
+    h('div',{class:'field mo'},h('label',{for:'fm'+i,class:'sr'},'الشهر'),h('select',{id:'fm'+i},MONTHS.map((m,j)=>h('option',{value:j},j?m:'الشهر')))));
   return h('div',{class:'stack'},h('button',{class:'link back',onclick:()=>{view='main';render()}},'→ رجوع'),
     h('section',{class:'panel',style:cc('family')},
       h('span',{class:'badge'},'تُحفظ على هذا الجهاز فقط'),
-      h('h2',{},'أضف حدثًا عائليًا'),
-      h('p',{class:'muted small'},'مثل: زواج جدي، ولادة أول حفيد، الانتقال إلى البيت الجديد. تظهر في فئة «أحداث العائلة»، ولا يراها اللاعبون قبل السؤال.'),
-      h('form',{class:'stack',onsubmit:addFamily},
-        h('div',{class:'field'},h('label',{for:'ft'},'الحدث'),h('input',{type:'text',id:'ft',maxlength:'90',required:true,placeholder:'مثلاً: ولادة سارة'})),
-        h('div',{class:'row'},
-          h('div',{class:'field'},h('label',{for:'fy'},'السنة الميلادية'),h('input',{type:'number',id:'fy',inputmode:'numeric',min:'1800',max:'2100',required:true,placeholder:'2005'})),
-          h('div',{class:'field'},h('label',{for:'fm'},'الشهر (اختياري)'),monthSel)),
-        h('div',{class:'field'},h('label',{for:'fn'},'تلميح صغير (اختياري)'),h('input',{type:'text',id:'fn',maxlength:'60',placeholder:'مثلاً: في جدة'})),
-        h('button',{class:'btn primary block',type:'submit'},'أضف الحدث'))),
+      h('h2',{},'أضف سؤالًا عائليًا'),
+      h('p',{class:'muted small'},'كل سؤال عائلي = ٣ أحداث تكتبها معًا. تظهر الثلاثة معًا في سؤال واحد ولا تختلط بأحداث أسئلة أخرى، وكل سؤال يظهر مرة واحدة في اللعبة. تظهر البطاقات للاعبين في أماكن عشوائية ليرتبوها هم. الشهر اختياري، ويلزم فقط إذا وقع حدثان في السنة نفسها.'),
+      h('form',{class:'stack',onsubmit:addPack},row(0),row(1),row(2),
+        h('button',{class:'btn primary block',type:'submit'},'احفظ السؤال'))),
     h('section',{class:'panel'},
-      h('div',{class:'status'},h('h3',{},'أحداث العائلة'),h('span',{class:'pill'},num(family.length))),
-      family.length?h('ul',{class:'fam'},sorted.map(f=>h('li',{},
-        h('div',{},h('strong',{text:f.title}),h('div',{class:'muted small'},fmtDate({y:+f.year,m:+f.month||0})+(f.note?' · '+f.note:''))),
-        h('button',{class:'link',onclick:()=>{family=family.filter(x=>x.id!==f.id);saveFamily();render()}},'احذف')))):
-      h('p',{class:'muted'},'لا توجد أحداث بعد. أضف ٣ أحداث على الأقل لتفتح فئة «أحداث العائلة».')));
+      h('div',{class:'status'},h('h3',{},'أسئلة العائلة'),h('span',{class:'pill'},num(packs.length))),
+      packs.length?h('ol',{class:'packs'},packs.map((p,pi)=>{
+        const ok=packReady(p);const ev=[...p.events].sort((a,b)=>cmp({y:a.year,m:a.month},{y:b.year,m:b.month}));
+        return h('li',{class:'pack'+(ok?'':' bad')},
+          h('div',{class:'status'},h('strong',{},`السؤال ${num(pi+1)}`),h('button',{class:'link danger-link',onclick:()=>{packs=packs.filter(x=>x.id!==p.id);savePacks();render()}},'احذف')),
+          h('ol',{class:'mini'},ev.map(f=>h('li',{},h('span',{class:'y'},fmtDate({y:f.year,m:f.month})),h('span',{class:'tt',text:f.title}),h('span',{})))),
+          ok?null:h('p',{class:'no small'},p.events.length<PACK_SIZE?`ناقص: يحتاج ${num(PACK_SIZE)} أحداث. احذفه وأضفه من جديد.`:'حدثان بالتاريخ نفسه: احذفه وأضفه مع الشهر.'));
+      })):h('p',{class:'muted'},'لا توجد أسئلة عائلية بعد. أضف سؤالًا واحدًا على الأقل لتفتح فئة «أحداث العائلة».')));
 }
-function saveFamily(){store('family',JSON.stringify(family));if(S&&S.settings&&family.length>=3&&!S.settings.cats.includes('family')){S.settings.cats.push('family');commit()}}
-
+function savePacks(){
+  store('familyPacks',JSON.stringify(packs));
+  if(S&&S.settings&&readyPacks().length&&!S.settings.cats.includes('family')){S.settings.cats.push('family');commit()}
+}
 // ---------- admin actions ----------
 function setTeam(pid,tid){S.teams={...(S.teams||{}),[pid]:tid};commit()}
 function moveTeam(p){const d=teamDefs();const i=d.findIndex(t=>t.id===teamOf(p,playerList()));setTeam(p.id,d[(i+1)%d.length].id)}
@@ -680,12 +697,14 @@ function advance(c,last){
   if(last){S.status='done';recordGame(true)}else{S.status='setup';S.round=c.r+1}
   commit();
 }
-function addFamily(ev){
+function addPack(ev){
   ev.preventDefault();
-  const title=$('#ft').value.trim(),year=parseInt($('#fy').value,10),month=+$('#fm').value,note=$('#fn').value.trim();
-  if(!title||!(year>=1800&&year<=2100)){toast('اكتب الحدث وسنة صحيحة');return}
-  family.push({id:rid(8),title,year,month,note});
-  $('#ft').value='';$('#fy').value='';$('#fn').value='';$('#fm').value='0';toast('أُضيف الحدث ✓');saveFamily();render();
+  const evs=[0,1,2].map(i=>({title:$('#ft'+i).value.trim(),year:parseInt($('#fy'+i).value,10),month:+$('#fm'+i).value}));
+  const bad=evs.findIndex(e=>!e.title||!(e.year>=1800&&e.year<=2100));
+  if(bad>=0){toast(`اكتب الحدث ${num(bad+1)} وسنته (بين ١٨٠٠ و٢١٠٠)`);$('#'+(evs[bad].title?'fy':'ft')+bad).focus();return}
+  const p={id:rid(8),events:evs};
+  if(!packReady(p)){toast('حدثان بالتاريخ نفسه: اختر الشهر لكل منهما ليُعرف الأقدم');return}
+  packs.push(p);savePacks();toast('حُفظ السؤال العائلي ✓');render();
 }
 
 // clock loop: moves between questions; the admin page ends the round
